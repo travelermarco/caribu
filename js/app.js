@@ -1,16 +1,16 @@
 'use strict';
-import { HeaterBLE }  from './heater.js';
-import { BMABLE }     from './bms.js';
-import { VictronMPPT } from './victron.js';
-import { ImouAPI }    from './imou.js';
+import { HeaterBLE, HEATER_ERROR }  from './heater.js';
+import { BMABLE }                    from './bms.js';
+import { VictronMPPT }               from './victron.js';
+import { ImouAPI }                   from './imou.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const state = {
-  heater:  { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1 },
-  bms:     { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0 },
-  mppt1:   { connected:false, label:'MPPT 1', battV:'--', pvW:'--', yieldToday:'--', cs:'--', error:'--' },
-  mppt2:   { connected:false, label:'MPPT 2', battV:'--', pvW:'--', yieldToday:'--', cs:'--', error:'--' },
-  imou:    { connected:false, devices:[], error:null },
+  heater: { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1, errorCode:0, mode:1 },
+  bms:    { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0, fetCharge:true, fetDischarge:true, balance:0, cellCount:0 },
+  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', pvW:'--', pvV:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--' },
+  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', pvW:'--', pvV:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--' },
+  imou:   { connected:false, devices:[], error:null },
 };
 
 // ── Device instances ──────────────────────────────────────────────────────────
@@ -39,8 +39,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 function updateDots() {
   const dot = (id, ok) => {
     const el = document.getElementById(id);
-    if (!el) return;
-    el.className = 'conn-dot' + (ok ? ' ok' : '');
+    if (el) el.className = 'conn-dot' + (ok ? ' ok' : '');
   };
   dot('dot-heater', state.heater.connected);
   dot('dot-bms',    state.bms.connected);
@@ -48,26 +47,85 @@ function updateDots() {
   dot('dot-mppt2',  state.mppt2.connected);
 }
 
+function setDotConnecting(id) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'conn-dot connecting';
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function el(id) { return document.getElementById(id); }
+
+function badge(type, text) {
+  return `<span class="badge badge-${type}"><span class="badge-dot"></span>${text}</span>`;
+}
+function placeholder(icon, text) {
+  return `<div style="text-align:center;padding:4px 0"><div style="font-size:28px;opacity:.4">${icon}</div><div style="font-size:12px;color:var(--text-2);margin-top:4px">${text}</div></div>`;
+}
+function statCard(label, color, value, unit) {
+  return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value" style="color:${color}">${value}<span class="stat-unit">${unit}</span></div></div>`;
+}
+
+// Calcola ETA a pieno (se in carica) o a scarico (se in scarica).
+// Ritorna null se non applicabile (standby o dati mancanti).
+function calcETA(current, remaining, capacity) {
+  const curr = parseFloat(current);
+  const rem  = parseFloat(remaining);
+  const cap  = parseFloat(capacity);
+  if (isNaN(curr) || isNaN(rem) || isNaN(cap) || cap <= 0) return null;
+  let hours;
+  if (curr > 0.1) {
+    const toFull = cap - rem;
+    if (toFull <= 0) return null; // già piena
+    hours = toFull / curr;
+  } else if (curr < -0.1) {
+    if (rem <= 0) return null;
+    hours = rem / Math.abs(curr);
+  } else {
+    return null; // standby
+  }
+  if (hours < 0 || !isFinite(hours)) return null;
+  const h = Math.floor(hours);
+  const m = Math.floor((hours - h) * 60);
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function chargeStatus(current) {
+  const curr = parseFloat(current);
+  if (curr > 0.1)  return { label: 'In carica',  badge: 'green' };
+  if (curr < -0.1) return { label: 'In scarica', badge: 'amber' };
+  return { label: 'Standby', badge: 'grey' };
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 function renderDash() {
   // Heater card
   const hs = state.heater;
   const heaterOn = hs.state === 1 || hs.state === 2;
+  const heaterErr = hs.errorCode && HEATER_ERROR[hs.errorCode];
   el('dash-heater').innerHTML = hs.connected
     ? `<div class="temp-row" style="padding:0">
          <div class="temp-box"><div class="label">Attuale</div><div class="temp-current" style="font-size:36px">${hs.currentTemp}°</div></div>
          <div class="temp-box"><div class="label">Target</div><div class="temp-target" style="font-size:28px">${hs.targetTemp}°</div></div>
        </div>
-       <div style="margin-top:8px">${badge(heaterOn ? 'green' : 'grey', heaterOn ? 'Attivo' : 'Spento')}</div>`
+       <div style="margin-top:8px">${badge(heaterOn ? 'green' : 'grey', heaterOn ? 'Attivo' : heater.stateLabel())}</div>
+       ${heaterErr ? `<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ ${heaterErr}</div>` : ''}`
     : placeholder('🔥', 'Non connesso');
 
   // BMS card
   const bs = state.bms;
   const socNum = parseInt(bs.soc);
   const socColor = socNum >= 50 ? 'var(--green)' : socNum >= 20 ? 'var(--amber)' : 'var(--red)';
+  const cs  = chargeStatus(bs.current);
+  const eta = calcETA(bs.current, bs.remaining, bs.capacity);
   el('dash-bms').innerHTML = bs.connected
     ? `<div class="big-num" style="color:${socColor};font-size:42px">${bs.soc}<span class="big-unit" style="font-size:16px">%</span></div>
-       <div class="stat-sub">${bs.voltage} V · ${bs.current} A</div>`
+       <div class="stat-sub" style="margin-bottom:4px">${bs.voltage} V · ${bs.current} A</div>
+       <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
+         ${badge(cs.badge, cs.label)}
+         ${eta !== null ? `<span class="badge badge-grey">⏱ ${eta}</span>` : ''}
+       </div>`
     : placeholder('🔋', 'Non connesso');
 
   // Solar card
@@ -79,7 +137,7 @@ function renderDash() {
   const yT = (() => {
     const y1 = parseFloat(state.mppt1.yieldToday) || 0;
     const y2 = parseFloat(state.mppt2.yieldToday) || 0;
-    return (y1+y2) > 0 ? (y1+y2).toFixed(2) : '--';
+    return (y1 + y2) > 0 ? (y1 + y2).toFixed(2) : '--';
   })();
   el('dash-solar').innerHTML = (state.mppt1.connected || state.mppt2.connected)
     ? `<div class="big-num" style="color:var(--amber);font-size:38px">${totalW}<span class="big-unit" style="font-size:14px">W</span></div>
@@ -89,8 +147,8 @@ function renderDash() {
   // Imou card
   const ic = state.imou;
   el('dash-imou').innerHTML = ic.connected
-    ? `<div style="font-size:13px;color:var(--text-2)">${ic.devices.length} camera${ic.devices.length!==1?'e':''}</div>
-       ${badge('green','Online')}`
+    ? `<div style="font-size:13px;color:var(--text-2)">${ic.devices.length} camera${ic.devices.length !== 1 ? 'e' : ''}</div>
+       ${badge('green', 'Online')}`
     : placeholder('📷', 'Non connesso');
 }
 
@@ -101,7 +159,10 @@ function renderHeater() {
     el('heater-body').innerHTML = `<div class="connect-placeholder"><div class="icon">🔥</div><p>Connetti il riscaldatore via Bluetooth</p><button class="btn btn-primary btn-full" onclick="connectHeater()">Connetti</button></div>`;
     return;
   }
-  const heaterOn = hs.state === 1 || hs.state === 2;
+  const heaterOn  = hs.state === 1 || hs.state === 2;
+  const errLabel  = hs.errorCode ? (HEATER_ERROR[hs.errorCode] ?? `E-${String(hs.errorCode).padStart(2, '0')}`) : null;
+  const modeLabel = hs.mode === 2 ? 'Termostato' : 'Manuale';
+
   el('heater-body').innerHTML = `
     <div class="card">
       <div class="card-row" style="justify-content:center;flex-direction:column;gap:12px">
@@ -109,13 +170,17 @@ function renderHeater() {
           <div class="temp-box"><div class="label">Temperatura attuale</div><div class="temp-current">${hs.currentTemp}°C</div></div>
           <div class="temp-box"><div class="label">Target</div><div class="temp-target">${hs.targetTemp}°C</div></div>
         </div>
-        <div>${badge(heaterOn ? 'green' : hs.state === 4 ? 'amber' : 'grey', heaterOn ? '⚡ ' + heater.stateLabel() : heater.stateLabel())}</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          ${badge(heaterOn ? 'green' : hs.state === 4 ? 'amber' : 'grey', heater.stateLabel())}
+          ${badge('grey', modeLabel)}
+        </div>
+        ${errLabel ? `<div class="alert alert-err" style="margin:0">⚠️ ${errLabel}</div>` : ''}
       </div>
     </div>
 
     <div class="card">
       <div class="card-title">Accensione</div>
-      <button class="power-btn ${heaterOn ? 'on' : ''}" onclick="toggleHeater()" id="power-btn">⏻</button>
+      <button class="power-btn ${heaterOn ? 'on' : ''}" onclick="toggleHeater()">⏻</button>
       <div style="text-align:center;font-size:12px;color:var(--text-2);margin-top:4px">${heaterOn ? 'Tocca per spegnere' : 'Tocca per accendere'}</div>
     </div>
 
@@ -131,15 +196,17 @@ function renderHeater() {
 
     <div class="card">
       <div class="card-title">Livello potenza</div>
-      <div class="level-pills" id="level-pills">
-        ${[1,2,3,4,5,6,7,8,9,10].map(l=>`<div class="level-pill ${hs.power===l?'active':''}" onclick="setHeaterLevel(${l})">${l}</div>`).join('')}
+      <div class="level-pills">
+        ${[1,2,3,4,5,6,7,8,9,10].map(l => `<div class="level-pill ${hs.power===l?'active':''}" onclick="setHeaterLevel(${l})">${l}</div>`).join('')}
       </div>
     </div>
 
     <div class="card">
       <div class="card-title">Info</div>
       <div class="settings-row"><label>Tensione batteria</label><span style="color:var(--amber)">${hs.voltage} V</span></div>
-      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="heater.disconnect();renderHeater()">Disconnetti</button>
+      <div class="settings-row"><label>Modalità</label><span>${modeLabel}</span></div>
+      ${errLabel ? `<div class="settings-row"><label>Errore</label><span style="color:var(--red)">${errLabel}</span></div>` : ''}
+      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window.heater.disconnect();renderHeater()">Disconnetti</button>
     </div>
   `;
 }
@@ -153,51 +220,100 @@ function renderBMS() {
   }
   const socN = parseInt(bs.soc) || 0;
   const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
-  // SVG gauge arc
-  const r = 70, cx = 90, cy = 90, sw = 14;
+  const cs  = chargeStatus(bs.current);
+  const eta = calcETA(bs.current, bs.remaining, bs.capacity);
+
+  // SVG semicircle gauge
+  const r = 70, cx = 90, cy = 95, sw = 14;
   const angle = (socN / 100) * 180;
-  const arcX = cx + r * Math.cos(Math.PI - angle * Math.PI/180);
-  const arcY = cy - r * Math.sin(angle * Math.PI/180);
-  const la = angle > 180 ? 1 : 0;
+  const arcX  = cx + r * Math.cos(Math.PI - angle * Math.PI / 180);
+  const arcY  = cy - r * Math.sin(angle * Math.PI / 180);
+  const la    = angle > 180 ? 1 : 0;
 
   // Protection flags
   const protFlags = [
-    [0,'Sovratensione cella'],[1,'Sottotensione cella'],[2,'Sovratensione pacco'],
-    [3,'Sottotensione pacco'],[4,'Temp carica alta'],[5,'Temp carica bassa'],
-    [6,'Temp scarica alta'],[7,'Temp scarica bassa'],[8,'Sovracorrente carica'],
-    [9,'Sovracorrente scarica'],[10,'Cortocircuito'],[11,'Errore MOSFET'],
-  ].filter(([bit]) => bs.protect & (1 << bit)).map(([,name]) => name);
+    [0, 'Sovratensione cella'], [1, 'Sottotensione cella'],
+    [2, 'Sovratensione pacco'], [3, 'Sottotensione pacco'],
+    [4, 'Temp carica alta'],    [5, 'Temp carica bassa'],
+    [6, 'Temp scarica alta'],   [7, 'Temp scarica bassa'],
+    [8, 'Sovracorrente carica'],[9, 'Sovracorrente scarica'],
+    [10, 'Cortocircuito'],      [11, 'Errore MOSFET'],
+  ].filter(([bit]) => bs.protect & (1 << bit)).map(([, name]) => name);
+
+  // Cell stats
+  let cellStatsHtml = '';
+  if (bs.cells.length) {
+    const vCells = bs.cells.map(v => parseFloat(v));
+    const vMin   = Math.min(...vCells).toFixed(3);
+    const vMax   = Math.max(...vCells).toFixed(3);
+    const vDelta = (Math.max(...vCells) - Math.min(...vCells)).toFixed(3);
+    const deltaColor = parseFloat(vDelta) > 0.050 ? 'var(--red)' : parseFloat(vDelta) > 0.020 ? 'var(--amber)' : 'var(--green)';
+    cellStatsHtml = `
+    <div class="grid-2" style="margin-bottom:10px">
+      ${statCard('Cella min', 'var(--blue)', vMin, 'V')}
+      ${statCard('Cella max', 'var(--green)', vMax, 'V')}
+      ${statCard('Delta', deltaColor, vDelta, 'V')}
+      ${statCard('N° celle', 'var(--text-2)', bs.cells.length, '')}
+    </div>`;
+  }
+
+  // Temperature cards (all NTCs)
+  const tempCards = bs.temps.map((t, i) => {
+    const tN = parseFloat(t);
+    const tC = tN > 40 ? 'var(--red)' : tN > 30 ? 'var(--amber)' : 'var(--green)';
+    return statCard(`NTC ${i + 1}`, tC, t, '°C');
+  }).join('');
 
   el('bms-body').innerHTML = `
     <div class="card" style="text-align:center">
       <div class="card-title">Stato di carica</div>
-      <svg class="gauge-svg" viewBox="0 0 180 100" style="width:200px;height:120px">
+      <svg viewBox="0 0 180 110" style="width:200px;height:120px">
         <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
         ${socN > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${socColor}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
-        <text x="${cx}" y="${cy-8}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">${bs.soc}%</text>
+        <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">${bs.soc}%</text>
         <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">SOC</text>
       </svg>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px">
+        ${badge(cs.badge, cs.label)}
+        ${eta !== null ? `<span class="badge badge-grey">⏱ ${eta}</span>` : ''}
+      </div>
     </div>
 
     <div class="grid-2">
-      ${statCard('Tensione','var(--blue)',bs.voltage,'V')}
-      ${statCard('Corrente','var(--amber)',bs.current,'A')}
-      ${statCard('Capacità res.',socColor,bs.remaining,'Ah')}
-      ${statCard('Capacità nom.','var(--text-2)',bs.capacity,'Ah')}
-      ${statCard('Cicli','var(--text)',bs.cycles,'')}
-      ${statCard('Temp.',bs.temps[0]>35?'var(--red)':'var(--green)',bs.temps[0]??'--','°C')}
+      ${statCard('Tensione', 'var(--blue)', bs.voltage, 'V')}
+      ${statCard('Corrente', cs.badge === 'green' ? 'var(--green)' : cs.badge === 'amber' ? 'var(--amber)' : 'var(--text-2)', bs.current, 'A')}
+      ${statCard('Capacità res.', socColor, bs.remaining, 'Ah')}
+      ${statCard('Capacità nom.', 'var(--text-2)', bs.capacity, 'Ah')}
+      ${statCard('Cicli', 'var(--text)', bs.cycles, '')}
     </div>
+
+    <div class="card">
+      <div class="card-title">Stato MOSFET</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${badge(bs.fetCharge    ? 'green' : 'red', bs.fetCharge    ? 'CHG ON' : 'CHG OFF')}
+        ${badge(bs.fetDischarge ? 'green' : 'red', bs.fetDischarge ? 'DSG ON' : 'DSG OFF')}
+      </div>
+    </div>
+
+    ${bs.temps.length > 0 ? `
+    <div class="card">
+      <div class="card-title">Temperature NTC</div>
+      <div class="grid-2" style="margin:0">${tempCards}</div>
+    </div>` : ''}
 
     ${bs.cells.length ? `
     <div class="card">
       <div class="card-title">Tensioni celle</div>
+      ${cellStatsHtml}
       <div class="cell-grid">
-        ${bs.cells.map((v,i) => {
-          const vn = parseFloat(v);
-          const pct = Math.min(100, Math.max(0, ((vn - 2.8) / (4.2 - 2.8)) * 100)).toFixed(0);
-          const cls = vn < 3.0 ? 'danger' : vn < 3.3 ? 'warn' : '';
+        ${bs.cells.map((v, i) => {
+          const vn  = parseFloat(v);
+          // LiFePO4 range: 2.50–3.65 V (non Li-Ion 2.8–4.2 V)
+          const pct = Math.min(100, Math.max(0, ((vn - 2.5) / (3.65 - 2.5)) * 100)).toFixed(0);
+          const cls = vn < 2.8 ? 'danger' : vn < 3.1 ? 'warn' : '';
+          const isBalancing = (bs.balance >> i) & 1;
           return `<div class="cell-item">
-            <div class="cell-label">C${i+1}</div>
+            <div class="cell-label">C${i+1}${isBalancing ? ' ⚖' : ''}</div>
             <div class="cell-v" style="color:${cls==='danger'?'var(--red)':cls==='warn'?'var(--amber)':'var(--green)'}">${v}V</div>
             <div class="cell-bar"><div class="cell-bar-fill ${cls}" style="width:${pct}%"></div></div>
           </div>`;
@@ -206,7 +322,7 @@ function renderBMS() {
     </div>` : ''}
 
     ${protFlags.length ? `<div class="alert alert-err">⚠️ ${protFlags.join(' · ')}</div>` : ''}
-    <button class="btn btn-ghost btn-full" onclick="bms.disconnect();renderBMS()">Disconnetti</button>
+    <button class="btn btn-ghost btn-full" onclick="window.bms.disconnect();renderBMS()">Disconnetti</button>
   `;
 }
 
@@ -221,15 +337,19 @@ function renderVictron() {
         ${badge(m.connected ? 'green' : 'grey', m.connected ? 'BLE' : 'Off')}
       </div>
       ${m.connected ? `
-      <div class="mppt-grid">
-        <div class="mppt-stat"><div class="mppt-val" style="color:var(--amber)">${m.pvW}<small style="font-size:12px"> W</small></div><div class="mppt-lbl">Potenza PV</div></div>
-        <div class="mppt-stat"><div class="mppt-val" style="color:var(--blue)">${m.pvV??'--'}<small style="font-size:12px"> V</small></div><div class="mppt-lbl">Tensione PV</div></div>
-        <div class="mppt-stat"><div class="mppt-val" style="color:var(--green)">${m.battV}<small style="font-size:12px"> V</small></div><div class="mppt-lbl">Batt.</div></div>
+      <div class="grid-2" style="margin-bottom:10px">
+        ${statCard('Potenza PV', 'var(--amber)', m.pvW, 'W')}
+        ${statCard('Tensione PV', 'var(--blue)', m.pvV, 'V')}
+        ${statCard('Batt. V', 'var(--green)', m.battV, 'V')}
+        ${statCard('Batt. A', 'var(--text)', m.battA, 'A')}
       </div>
       <div class="divider"></div>
       <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Stato</span><span style="font-size:12px">${m.cs}</span></div>
-      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Oggi</span><span style="font-size:12px;color:var(--amber)">${m.yieldToday} kWh</span></div>
-      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="${idx===1?'mppt1':'mppt2'}.disconnect();renderVictron()">Disconnetti</button>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px">${m.error}</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Resa oggi</span><span style="font-size:12px;color:var(--amber)">${m.yieldToday} kWh</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Resa ieri</span><span style="font-size:12px;color:var(--text)">${m.yieldYesterday} kWh</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Max potenza oggi</span><span style="font-size:12px;color:var(--text)">${m.maxPowerToday} W</span></div>
+      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="(${idx===1?'window.mppt1':'window.mppt2'}).disconnect();renderVictron()">Disconnetti</button>
       ` : `
       <button class="btn btn-primary btn-full" onclick="connectMPPT(${idx})">Connetti</button>
       `}
@@ -237,14 +357,15 @@ function renderVictron() {
       <div class="settings-row">
         <label>Chiave cifratura</label>
         <input type="password" id="${keyId}" placeholder="32 char hex" style="max-width:160px"
-          value="${localStorage.getItem(keyId)??''}"
+          value="${localStorage.getItem(keyId) ?? ''}"
           onchange="saveVictronKey(${idx},this.value)">
       </div>
     </div>`;
   };
 
   el('victron-body').innerHTML = `
-    <div class="alert alert-warn">ℹ️ Chiave cifratura: VictronConnect → dispositivo → ⋮ → <strong>Show encryption data</strong></div>
+    <div class="alert alert-warn">ℹ️ Chiave: VictronConnect → dispositivo → ⋮ → <strong>Show encryption data</strong></div>
+    <div class="alert alert-warn" style="font-size:11px">Su Android potrebbe servire abilitare <strong>chrome://flags/#enable-experimental-web-platform-features</strong></div>
     ${mpptCard(state.mppt1, 1)}
     ${mpptCard(state.mppt2, 2)}
   `;
@@ -268,7 +389,7 @@ function renderImou() {
   }
   el('imou-body').innerHTML = ic.connected
     ? `
-      ${ic.devices.length === 0 ? '<div class="connect-placeholder"><div class="icon">📷</div><p>Nessuna camera trovata sull\'account Imou</p></div>' : ''}
+      ${ic.devices.length === 0 ? '<div class="connect-placeholder"><div class="icon">📷</div><p>Nessuna camera trovata</p></div>' : ''}
       <div class="cam-grid">
         ${ic.devices.map(d => `
           <div class="cam-card" onclick="loadImouSnap('${d.id}',this)">
@@ -289,11 +410,22 @@ function renderImou() {
 
 // ── Settings screen ───────────────────────────────────────────────────────────
 function renderSettings() {
+  const saved = (key) => localStorage.getItem(key) ? '✅ memorizzato' : '—';
   el('settings-body').innerHTML = `
     <div class="card">
       <div class="card-title">Generale</div>
-      <div class="settings-row"><label>Versione app</label><span style="color:var(--text-2)">1.0.0</span></div>
+      <div class="settings-row"><label>Versione app</label><span style="color:var(--text-2)">1.1.0</span></div>
       <div class="settings-row"><label>Aggiornamento</label><button class="btn btn-ghost" onclick="checkUpdate()">🔄 Verifica</button></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Dispositivi salvati</div>
+      <div style="font-size:12px;color:var(--text-2);line-height:2">
+        BMS: ${saved('ble_bms_id')}<br>
+        Riscaldatore: ${saved('ble_heater_id')}<br>
+        MPPT 1: ${saved('ble_mppt1_id')}<br>
+        MPPT 2: ${saved('ble_mppt2_id')}
+      </div>
+      <button class="btn btn-danger btn-full" style="margin-top:10px" onclick="clearSavedDevices()">🗑 Dimentica tutti i dispositivi</button>
     </div>
     <div class="card">
       <div class="card-title">Reset connessioni</div>
@@ -301,10 +433,45 @@ function renderSettings() {
     </div>`;
 }
 
+// ── Auto-reconnect on startup ─────────────────────────────────────────────────
+async function autoReconnect() {
+  if (!navigator.bluetooth?.getDevices) return;
+  let devices;
+  try { devices = await navigator.bluetooth.getDevices(); }
+  catch (e) { console.warn('getDevices not available:', e); return; }
+  if (!devices.length) return;
+
+  const bmsId    = localStorage.getItem('ble_bms_id');
+  const heaterId = localStorage.getItem('ble_heater_id');
+  const mppt1Id  = localStorage.getItem('ble_mppt1_id');
+  const mppt2Id  = localStorage.getItem('ble_mppt2_id');
+
+  let any = false;
+  for (const device of devices) {
+    if (device.id === bmsId)    { any = true; setDotConnecting('dot-bms');    bms.reconnect(device); }
+    if (device.id === heaterId) { any = true; setDotConnecting('dot-heater'); heater.reconnect(device); }
+    if (device.id === mppt1Id)  { any = true; setDotConnecting('dot-mppt1'); mppt1.reconnect(device); }
+    if (device.id === mppt2Id)  { any = true; setDotConnecting('dot-mppt2'); mppt2.reconnect(device); }
+  }
+  if (any) toast('🔄 Riconnessione automatica…');
+}
+
 // ── Global actions ────────────────────────────────────────────────────────────
-window.connectHeater = async () => { toast('Ricerca riscaldatore…'); await heater.connect(); };
-window.connectBMS    = async () => { toast('Ricerca BMS…');          await bms.connect();    };
-window.connectMPPT   = async (i) => { toast(`Ricerca ${i===1?'MPPT 1':'MPPT 2'}…`); await (i===1?mppt1:mppt2).connect(); };
+window.connectHeater = async () => {
+  setDotConnecting('dot-heater');
+  const ok = await heater.connect();
+  if (!ok) updateDots();
+};
+window.connectBMS = async () => {
+  setDotConnecting('dot-bms');
+  const ok = await bms.connect();
+  if (!ok) updateDots();
+};
+window.connectMPPT = async (i) => {
+  setDotConnecting(i === 1 ? 'dot-mppt1' : 'dot-mppt2');
+  const ok = await (i === 1 ? mppt1 : mppt2).connect();
+  if (!ok) updateDots();
+};
 
 window.toggleHeater = async () => {
   const on = state.heater.state === 1 || state.heater.state === 2;
@@ -313,7 +480,7 @@ window.toggleHeater = async () => {
 window.setHeaterTemp  = (t) => heater.setTemp(t);
 window.setHeaterLevel = (l) => {
   heater.setLevel(l);
-  document.querySelectorAll('.level-pill').forEach((p,i) => p.classList.toggle('active', i+1===l));
+  document.querySelectorAll('.level-pill').forEach((p, i) => p.classList.toggle('active', i + 1 === l));
 };
 
 window.saveVictronKey = (idx, val) => {
@@ -323,7 +490,7 @@ window.saveVictronKey = (idx, val) => {
 };
 
 window.saveImouCreds = () => {
-  const id = el('imou-id')?.value?.trim();
+  const id     = el('imou-id')?.value?.trim();
   const secret = el('imou-secret')?.value?.trim();
   if (!id || !secret) { toast('Inserisci App ID e Secret'); return; }
   imou.saveCredentials(id, secret);
@@ -340,17 +507,25 @@ window.loadImouSnap = async (deviceId, card) => {
   if (url) { const img = document.createElement('img'); img.src = url; card.prepend(img); }
 };
 
-window.disconnectAll = () => { heater.disconnect(); bms.disconnect(); mppt1.disconnect(); mppt2.disconnect(); toast('Disconnesso'); };
+window.disconnectAll = () => {
+  heater.disconnect(); bms.disconnect();
+  mppt1.disconnect();  mppt2.disconnect();
+  toast('Disconnesso');
+};
+window.clearSavedDevices = () => {
+  ['ble_bms_id', 'ble_heater_id', 'ble_mppt1_id', 'ble_mppt2_id'].forEach(k => localStorage.removeItem(k));
+  toast('Dispositivi dimenticati');
+  renderSettings();
+};
 window.checkUpdate = () => { location.reload(true); };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function el(id) { return document.getElementById(id); }
-function badge(type, text) { return `<span class="badge badge-${type}"><span class="badge-dot"></span>${text}</span>`; }
-function placeholder(icon, text) { return `<div style="text-align:center;padding:4px 0"><div style="font-size:28px;opacity:.4">${icon}</div><div style="font-size:12px;color:var(--text-2);margin-top:4px">${text}</div></div>`; }
-function statCard(label, color, value, unit) {
-  return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value" style="color:${color}">${value}<span class="stat-unit">${unit}</span></div></div>`;
-}
+// Expose instances globally for inline onclick
+window.heater = heater;
+window.bms    = bms;
+window.mppt1  = mppt1;
+window.mppt2  = mppt2;
 
+// ── Toast ─────────────────────────────────────────────────────────────────────
 let toastTimer;
 window.toast = (msg) => {
   const t = document.getElementById('toast');
@@ -368,10 +543,10 @@ renderImou();
 renderSettings();
 updateDots();
 
-// Try to reconnect Imou if credentials are saved
 if (imou.hasCredentials()) imou.connect();
 
-// Service worker registration
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(console.error);
+  navigator.serviceWorker.register('./sw.js').catch(console.error);
 }
+
+autoReconnect();

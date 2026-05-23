@@ -23,7 +23,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 /* ── Layout ───────────────────────────────────────────────────────────────── */
 #app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
 
-.screen { display: none; flex: 1; overflow-y: auto; padding: 16px 16px calc(var(--tab-h) + 16px); }
+.screen { display: none; flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 16px 16px calc(var(--tab-h) + 16px); }
 .screen.active { display: block; }
 
 /* ── Header ───────────────────────────────────────────────────────────────── */
@@ -139,7 +139,8 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 .alert-err  { background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.3); color: var(--red); }
 
 /* ── Victron MPPT card ────────────────────────────────────────────────────── */
-.mppt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+/* mppt-grid kept for legacy but Victron now uses grid-2 for 2×2 layout */
+.mppt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .mppt-stat { text-align: center; }
 .mppt-val  { font-size: 20px; font-weight: 700; }
 .mppt-lbl  { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .5px; }
