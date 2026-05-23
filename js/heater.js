@@ -106,14 +106,18 @@ export class HeaterBLE {
     this.data.state = 1; // optimistic: Avvio
     this.onUpdate({ ...this.data });
     await this._send(CMD.ON);
-    setTimeout(() => this._send(CMD.STATUS), 800);
+    await new Promise(r => setTimeout(r, 300));
+    await this._send(CMD.ON); // send twice — some BLE-UART bridges drop the first packet
+    setTimeout(() => this._send(CMD.STATUS), 1000);
   }
 
   async turnOff() {
     this.data.state = 4; // optimistic: Raffreddamento
     this.onUpdate({ ...this.data });
     await this._send(CMD.OFF);
-    setTimeout(() => this._send(CMD.STATUS), 800);
+    await new Promise(r => setTimeout(r, 300));
+    await this._send(CMD.OFF);
+    setTimeout(() => this._send(CMD.STATUS), 1000);
   }
 
   async setTemp(t) {
@@ -147,8 +151,25 @@ export class HeaterBLE {
 
   async _send(cmd) {
     if (!this.char) return;
-    try { await this.char.writeValueWithoutResponse(new Uint8Array(cmd)); }
-    catch (e) { console.warn('Heater write error:', e); }
+    const data = new Uint8Array(cmd);
+    console.log('Heater TX:', [...data].map(b => b.toString(16).padStart(2,'0')).join(' '),
+      '| wwr:', this.char.properties.writeWithoutResponse, '| wr:', this.char.properties.write);
+    try {
+      if (this.char.properties.writeWithoutResponse) {
+        await this.char.writeValueWithoutResponse(data);
+      } else if (this.char.properties.write) {
+        await this.char.writeValueWithResponse(data);
+      } else {
+        console.error('Heater char has no write property — cannot send commands');
+      }
+    } catch (e) {
+      console.warn('Heater write error:', e);
+      // Last-resort fallback: try the other method
+      try {
+        if (this.char.properties.writeWithoutResponse) await this.char.writeValueWithResponse(data);
+        else await this.char.writeValueWithoutResponse(data);
+      } catch (e2) { console.error('Heater write fallback failed:', e2); }
+    }
   }
 
   _parse(dv) {
