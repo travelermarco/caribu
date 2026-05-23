@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0D1117">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>Caribù</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- Header -->
+  <header class="app-header">
+    <h1>⚡ Caribù</h1>
+    <div class="conn-dots" title="Stato connessioni">
+      <div class="conn-dot" id="dot-heater" title="Riscaldatore"></div>
+      <div class="conn-dot" id="dot-bms"    title="Batterie"></div>
+      <div class="conn-dot" id="dot-mppt1"  title="MPPT 1"></div>
+      <div class="conn-dot" id="dot-mppt2"  title="MPPT 2"></div>
+    </div>
+  </header>
+
+  <!-- ── Dashboard ────────────────────────────────────────────────────────── -->
+  <section class="screen active" id="screen-dash">
+    <div class="grid-2">
+      <div class="stat-card" onclick="switchTab('heater')" style="cursor:pointer">
+        <div class="stat-label">🔥 Riscaldatore</div>
+        <div id="dash-heater"></div>
+      </div>
+      <div class="stat-card" onclick="switchTab('bms')" style="cursor:pointer">
+        <div class="stat-label">🔋 Batterie</div>
+        <div id="dash-bms"></div>
+      </div>
+      <div class="stat-card" onclick="switchTab('victron')" style="cursor:pointer">
+        <div class="stat-label">☀️ Solare</div>
+        <div id="dash-solar"></div>
+      </div>
+      <div class="stat-card" onclick="switchTab('imou')" style="cursor:pointer">
+        <div class="stat-label">📷 Camere</div>
+        <div id="dash-imou"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:4px">
+      <div class="card-title">Connessioni rapide</div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-ghost btn-full" id="quick-heater" onclick="connectHeater()">🔥 Connetti riscaldatore</button>
+        <button class="btn btn-ghost btn-full" id="quick-bms"    onclick="connectBMS()">🔋 Connetti batterie</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" style="flex:1" onclick="connectMPPT(1)">☀️ MPPT 1</button>
+          <button class="btn btn-ghost" style="flex:1" onclick="connectMPPT(2)">☀️ MPPT 2</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Riscaldatore ──────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-heater">
+    <div id="heater-body"></div>
+  </section>
+
+  <!-- ── Batterie ──────────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-bms">
+    <div id="bms-body"></div>
+  </section>
+
+  <!-- ── Solare (Victron) ──────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-victron">
+    <div id="victron-body"></div>
+  </section>
+
+  <!-- ── Camere (Imou) ─────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-imou">
+    <div id="imou-body"></div>
+  </section>
+
+  <!-- ── Impostazioni ──────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-settings">
+    <div id="settings-body"></div>
+  </section>
+
+  <!-- Tab bar -->
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="dash">
+      <span class="tab-icon">🏠</span>
+      <span>Home</span>
+    </button>
+    <button class="tab-btn" data-tab="heater">
+      <span class="tab-icon">🔥</span>
+      <span>Heater</span>
+    </button>
+    <button class="tab-btn" data-tab="bms">
+      <span class="tab-icon">🔋</span>
+      <span>Batterie</span>
+    </button>
+    <button class="tab-btn" data-tab="victron">
+      <span class="tab-icon">☀️</span>
+      <span>Solare</span>
+    </button>
+    <button class="tab-btn" data-tab="imou">
+      <span class="tab-icon">📷</span>
+      <span>Camere</span>
+    </button>
+    <button class="tab-btn" data-tab="settings">
+      <span class="tab-icon">⚙️</span>
+      <span>Config</span>
+    </button>
+  </nav>
+
+  <div id="toast"></div>
+</div>
+
+<script>
+  // switchTab helper (called from dashboard cards)
+  window.switchTab = (tab) => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === `screen-${tab}`));
+  };
+</script>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

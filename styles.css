@@ -1,0 +1,161 @@
+/* ── Reset & Base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #0D1117;
+  --surface:  #161B22;
+  --surface2: #21262D;
+  --border:   #30363D;
+  --amber:    #F59E0B;
+  --amber-d:  #B45309;
+  --amber-l:  #FCD34D;
+  --blue:     #38BDF8;
+  --green:    #4ADE80;
+  --red:      #F87171;
+  --text:     #F0F6FC;
+  --text-2:   #8B949E;
+  --radius:   14px;
+  --tab-h:    64px;
+}
+
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; overscroll-behavior: none; }
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+
+.screen { display: none; flex: 1; overflow-y: auto; padding: 16px 16px calc(var(--tab-h) + 16px); }
+.screen.active { display: block; }
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.app-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px; position: sticky; top: 0; background: var(--bg); z-index: 10; border-bottom: 1px solid var(--border); }
+.app-header h1 { font-size: 22px; font-weight: 700; color: var(--amber); letter-spacing: -0.5px; }
+.conn-dots { display: flex; gap: 6px; }
+.conn-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); transition: background .3s; }
+.conn-dot.ok  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.conn-dot.err { background: var(--red); }
+.conn-dot.connecting { background: var(--amber); animation: pulse 1s infinite; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── Tab bar ──────────────────────────────────────────────────────────────── */
+.tab-bar { display: flex; height: var(--tab-h); background: var(--surface); border-top: 1px solid var(--border); position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; }
+.tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: none; background: none; color: var(--text-2); font-size: 10px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; cursor: pointer; transition: color .2s; -webkit-tap-highlight-color: transparent; }
+.tab-btn .tab-icon { font-size: 22px; line-height: 1; }
+.tab-btn.active { color: var(--amber); }
+.tab-btn.active .tab-icon { filter: drop-shadow(0 0 4px var(--amber)); }
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+.card-title { font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text-2); margin-bottom: 12px; }
+.card-row { display: flex; align-items: center; justify-content: space-between; }
+
+/* ── Grid ─────────────────────────────────────────────────────────────────── */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px; }
+.stat-label { font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--text-2); margin-bottom: 6px; }
+.stat-value { font-size: 26px; font-weight: 700; line-height: 1; }
+.stat-unit  { font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: 2px; }
+.stat-sub   { font-size: 12px; color: var(--text-2); margin-top: 4px; }
+
+/* ── Big number ───────────────────────────────────────────────────────────── */
+.big-num { font-size: 56px; font-weight: 800; line-height: 1; text-align: center; }
+.big-unit { font-size: 20px; color: var(--text-2); font-weight: 500; }
+
+/* ── Gauge (SOC) ──────────────────────────────────────────────────────────── */
+.gauge-wrap { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; }
+.gauge-svg { width: 180px; height: 110px; }
+.gauge-text { font-size: 34px; font-weight: 800; fill: var(--text); }
+.gauge-sub  { font-size: 12px; fill: var(--text-2); }
+
+/* ── Temperature display ──────────────────────────────────────────────────── */
+.temp-row { display: flex; align-items: flex-end; justify-content: center; gap: 20px; padding: 8px 0; }
+.temp-box { text-align: center; }
+.temp-box .label { font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--text-2); margin-bottom: 4px; }
+.temp-current { font-size: 52px; font-weight: 800; color: var(--amber); line-height: 1; }
+.temp-target  { font-size: 36px; font-weight: 700; color: var(--text-2); line-height: 1; }
+
+/* ── Status badge ─────────────────────────────────────────────────────────── */
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; }
+.badge-green  { background: rgba(74,222,128,.15); color: var(--green); border: 1px solid rgba(74,222,128,.3); }
+.badge-red    { background: rgba(248,113,113,.15); color: var(--red);   border: 1px solid rgba(248,113,113,.3); }
+.badge-amber  { background: rgba(245,158,11,.15);  color: var(--amber); border: 1px solid rgba(245,158,11,.3); }
+.badge-grey   { background: rgba(139,148,158,.1);  color: var(--text-2);border: 1px solid var(--border); }
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 12px 20px; border-radius: 10px; border: none; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s, transform .1s; -webkit-tap-highlight-color: transparent; }
+.btn:active { transform: scale(.97); opacity: .85; }
+.btn-primary  { background: var(--amber); color: #0D1117; }
+.btn-danger   { background: var(--red);   color: #0D1117; }
+.btn-ghost    { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.btn-full     { width: 100%; }
+.btn-lg       { padding: 16px; font-size: 16px; border-radius: 14px; }
+
+/* ── Big ON/OFF toggle ────────────────────────────────────────────────────── */
+.power-btn { width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--border); background: var(--surface2); color: var(--text-2); font-size: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .25s; -webkit-tap-highlight-color: transparent; margin: 8px auto; }
+.power-btn.on  { border-color: var(--amber); color: var(--amber); box-shadow: 0 0 24px rgba(245,158,11,.35); }
+.power-btn.on:active { box-shadow: 0 0 40px rgba(245,158,11,.5); }
+
+/* ── Slider ───────────────────────────────────────────────────────────────── */
+.slider-wrap { padding: 4px 0 8px; }
+.slider-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+.slider-label span:last-child { color: var(--amber); font-weight: 700; }
+input[type=range] { -webkit-appearance: none; width: 100%; height: 6px; border-radius: 3px; background: var(--surface2); outline: none; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--amber); cursor: pointer; border: 2px solid #0D1117; }
+
+/* ── Power level pills ────────────────────────────────────────────────────── */
+.level-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.level-pill { flex: 1; min-width: 36px; padding: 8px 4px; text-align: center; border-radius: 8px; border: 1px solid var(--border); background: var(--surface2); font-size: 13px; font-weight: 700; cursor: pointer; color: var(--text-2); transition: all .15s; }
+.level-pill.active { background: var(--amber); color: #0D1117; border-color: var(--amber); }
+
+/* ── Cell voltage bars ────────────────────────────────────────────────────── */
+.cell-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; }
+.cell-item { background: var(--surface2); border-radius: 8px; padding: 8px; text-align: center; }
+.cell-label { font-size: 10px; color: var(--text-2); margin-bottom: 4px; }
+.cell-v { font-size: 15px; font-weight: 700; }
+.cell-bar { height: 4px; border-radius: 2px; background: var(--border); margin-top: 6px; overflow: hidden; }
+.cell-bar-fill { height: 100%; border-radius: 2px; background: var(--green); transition: width .4s; }
+.cell-bar-fill.warn { background: var(--amber); }
+.cell-bar-fill.danger { background: var(--red); }
+
+/* ── Connect overlay ──────────────────────────────────────────────────────── */
+.connect-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 180px; }
+.connect-placeholder .icon { font-size: 48px; opacity: .4; }
+.connect-placeholder p { color: var(--text-2); font-size: 14px; text-align: center; max-width: 220px; line-height: 1.5; }
+
+/* ── Settings ─────────────────────────────────────────────────────────────── */
+.settings-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); gap: 12px; }
+.settings-row:last-child { border-bottom: none; }
+.settings-row label { font-size: 13px; color: var(--text); font-weight: 500; white-space: nowrap; }
+.settings-row input[type=text], .settings-row input[type=password] { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 13px; outline: none; min-width: 0; }
+.settings-row input:focus { border-color: var(--amber); }
+
+/* ── Divider ──────────────────────────────────────────────────────────────── */
+.divider { height: 1px; background: var(--border); margin: 8px 0; }
+
+/* ── Alert banner ─────────────────────────────────────────────────────────── */
+.alert { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; font-size: 13px; font-weight: 500; margin-bottom: 10px; }
+.alert-warn { background: rgba(245,158,11,.12); border: 1px solid rgba(245,158,11,.3); color: var(--amber-l); }
+.alert-err  { background: rgba(248,113,113,.12); border: 1px solid rgba(248,113,113,.3); color: var(--red); }
+
+/* ── Victron MPPT card ────────────────────────────────────────────────────── */
+.mppt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mppt-stat { text-align: center; }
+.mppt-val  { font-size: 20px; font-weight: 700; }
+.mppt-lbl  { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .5px; }
+
+/* ── Imou cameras ─────────────────────────────────────────────────────────── */
+.cam-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cam-card { background: var(--surface2); border-radius: 10px; overflow: hidden; aspect-ratio: 16/9; position: relative; display: flex; align-items: center; justify-content: center; }
+.cam-card img { width: 100%; height: 100%; object-fit: cover; }
+.cam-card .cam-name { position: absolute; bottom: 0; left: 0; right: 0; padding: 6px 8px; background: rgba(0,0,0,.6); font-size: 11px; font-weight: 600; }
+.cam-card .cam-offline { font-size: 28px; opacity: .3; }
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+#toast { position: fixed; bottom: calc(var(--tab-h) + 12px); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 18px; font-size: 13px; font-weight: 600; opacity: 0; transition: all .25s; z-index: 100; white-space: nowrap; pointer-events: none; }
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

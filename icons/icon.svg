@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#0D1117"/>
+  <!-- Camper body -->
+  <rect x="60" y="230" width="340" height="160" rx="18" fill="#1E2530"/>
+  <!-- Camper cab -->
+  <rect x="340" y="260" width="120" height="130" rx="18" fill="#1E2530"/>
+  <!-- Windows camper -->
+  <rect x="90" y="255" width="70" height="50" rx="8" fill="#F59E0B" opacity="0.85"/>
+  <rect x="180" y="255" width="70" height="50" rx="8" fill="#F59E0B" opacity="0.85"/>
+  <rect x="270" y="255" width="55" height="50" rx="8" fill="#F59E0B" opacity="0.85"/>
+  <!-- Window cab -->
+  <rect x="360" y="280" width="80" height="50" rx="8" fill="#F59E0B" opacity="0.85"/>
+  <!-- Wheels -->
+  <circle cx="150" cy="395" r="38" fill="#161B22"/>
+  <circle cx="150" cy="395" r="20" fill="#F59E0B"/>
+  <circle cx="330" cy="395" r="38" fill="#161B22"/>
+  <circle cx="330" cy="395" r="20" fill="#F59E0B"/>
+  <circle cx="430" cy="395" r="38" fill="#161B22"/>
+  <circle cx="430" cy="395" r="20" fill="#F59E0B"/>
+  <!-- Solar panel on roof -->
+  <rect x="80" y="200" width="280" height="32" rx="6" fill="#F59E0B" opacity="0.6"/>
+  <line x1="80" y1="216" x2="360" y2="216" stroke="#0D1117" stroke-width="2"/>
+  <line x1="150" y1="200" x2="150" y2="232" stroke="#0D1117" stroke-width="2"/>
+  <line x1="220" y1="200" x2="220" y2="232" stroke="#0D1117" stroke-width="2"/>
+  <line x1="290" y1="200" x2="290" y2="232" stroke="#0D1117" stroke-width="2"/>
+  <!-- Door -->
+  <rect x="160" y="310" width="55" height="80" rx="6" fill="#2D3748"/>
+  <!-- Text -->
+  <text x="256" y="475" font-family="system-ui,sans-serif" font-size="52" font-weight="700" fill="#F59E0B" text-anchor="middle">Caribù</text>
+</svg>

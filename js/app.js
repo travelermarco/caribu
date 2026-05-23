@@ -1,0 +1,377 @@
+'use strict';
+import { HeaterBLE }  from './heater.js';
+import { BMABLE }     from './bms.js';
+import { VictronMPPT } from './victron.js';
+import { ImouAPI }    from './imou.js';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const state = {
+  heater:  { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1 },
+  bms:     { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0 },
+  mppt1:   { connected:false, label:'MPPT 1', battV:'--', pvW:'--', yieldToday:'--', cs:'--', error:'--' },
+  mppt2:   { connected:false, label:'MPPT 2', battV:'--', pvW:'--', yieldToday:'--', cs:'--', error:'--' },
+  imou:    { connected:false, devices:[], error:null },
+};
+
+// ── Device instances ──────────────────────────────────────────────────────────
+const heater = new HeaterBLE(d => { Object.assign(state.heater, d); renderHeater(); renderDash(); updateDots(); });
+const bms    = new BMABLE   (d => { Object.assign(state.bms,    d); renderBMS();    renderDash(); updateDots(); });
+const mppt1  = new VictronMPPT('MPPT 1', d => { Object.assign(state.mppt1, d); renderVictron(); renderDash(); updateDots(); });
+const mppt2  = new VictronMPPT('MPPT 2', d => { Object.assign(state.mppt2, d); renderVictron(); renderDash(); updateDots(); });
+const imou   = new ImouAPI  (d => { Object.assign(state.imou, d); renderImou(); updateDots(); });
+
+// Load saved Victron keys
+const k1 = localStorage.getItem('victron_key_1');
+const k2 = localStorage.getItem('victron_key_2');
+if (k1) mppt1.setKey(k1);
+if (k2) mppt2.setKey(k2);
+
+// ── Tab routing ───────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const t = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === `screen-${t}`));
+  });
+});
+
+// ── Connection dots ───────────────────────────────────────────────────────────
+function updateDots() {
+  const dot = (id, ok) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'conn-dot' + (ok ? ' ok' : '');
+  };
+  dot('dot-heater', state.heater.connected);
+  dot('dot-bms',    state.bms.connected);
+  dot('dot-mppt1',  state.mppt1.connected);
+  dot('dot-mppt2',  state.mppt2.connected);
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function renderDash() {
+  // Heater card
+  const hs = state.heater;
+  const heaterOn = hs.state === 1 || hs.state === 2;
+  el('dash-heater').innerHTML = hs.connected
+    ? `<div class="temp-row" style="padding:0">
+         <div class="temp-box"><div class="label">Attuale</div><div class="temp-current" style="font-size:36px">${hs.currentTemp}°</div></div>
+         <div class="temp-box"><div class="label">Target</div><div class="temp-target" style="font-size:28px">${hs.targetTemp}°</div></div>
+       </div>
+       <div style="margin-top:8px">${badge(heaterOn ? 'green' : 'grey', heaterOn ? 'Attivo' : 'Spento')}</div>`
+    : placeholder('🔥', 'Non connesso');
+
+  // BMS card
+  const bs = state.bms;
+  const socNum = parseInt(bs.soc);
+  const socColor = socNum >= 50 ? 'var(--green)' : socNum >= 20 ? 'var(--amber)' : 'var(--red)';
+  el('dash-bms').innerHTML = bs.connected
+    ? `<div class="big-num" style="color:${socColor};font-size:42px">${bs.soc}<span class="big-unit" style="font-size:16px">%</span></div>
+       <div class="stat-sub">${bs.voltage} V · ${bs.current} A</div>`
+    : placeholder('🔋', 'Non connesso');
+
+  // Solar card
+  const totalW = (() => {
+    const w1 = parseFloat(state.mppt1.pvW) || 0;
+    const w2 = parseFloat(state.mppt2.pvW) || 0;
+    return (w1 + w2) > 0 ? (w1 + w2).toFixed(0) : '--';
+  })();
+  const yT = (() => {
+    const y1 = parseFloat(state.mppt1.yieldToday) || 0;
+    const y2 = parseFloat(state.mppt2.yieldToday) || 0;
+    return (y1+y2) > 0 ? (y1+y2).toFixed(2) : '--';
+  })();
+  el('dash-solar').innerHTML = (state.mppt1.connected || state.mppt2.connected)
+    ? `<div class="big-num" style="color:var(--amber);font-size:38px">${totalW}<span class="big-unit" style="font-size:14px">W</span></div>
+       <div class="stat-sub">Oggi: ${yT} kWh</div>`
+    : placeholder('☀️', 'Non connesso');
+
+  // Imou card
+  const ic = state.imou;
+  el('dash-imou').innerHTML = ic.connected
+    ? `<div style="font-size:13px;color:var(--text-2)">${ic.devices.length} camera${ic.devices.length!==1?'e':''}</div>
+       ${badge('green','Online')}`
+    : placeholder('📷', 'Non connesso');
+}
+
+// ── Heater screen ─────────────────────────────────────────────────────────────
+function renderHeater() {
+  const hs = state.heater;
+  if (!hs.connected) {
+    el('heater-body').innerHTML = `<div class="connect-placeholder"><div class="icon">🔥</div><p>Connetti il riscaldatore via Bluetooth</p><button class="btn btn-primary btn-full" onclick="connectHeater()">Connetti</button></div>`;
+    return;
+  }
+  const heaterOn = hs.state === 1 || hs.state === 2;
+  el('heater-body').innerHTML = `
+    <div class="card">
+      <div class="card-row" style="justify-content:center;flex-direction:column;gap:12px">
+        <div class="temp-row">
+          <div class="temp-box"><div class="label">Temperatura attuale</div><div class="temp-current">${hs.currentTemp}°C</div></div>
+          <div class="temp-box"><div class="label">Target</div><div class="temp-target">${hs.targetTemp}°C</div></div>
+        </div>
+        <div>${badge(heaterOn ? 'green' : hs.state === 4 ? 'amber' : 'grey', heaterOn ? '⚡ ' + heater.stateLabel() : heater.stateLabel())}</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Accensione</div>
+      <button class="power-btn ${heaterOn ? 'on' : ''}" onclick="toggleHeater()" id="power-btn">⏻</button>
+      <div style="text-align:center;font-size:12px;color:var(--text-2);margin-top:4px">${heaterOn ? 'Tocca per spegnere' : 'Tocca per accendere'}</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Temperatura target</div>
+      <div class="slider-wrap">
+        <div class="slider-label"><span>15°C</span><span id="temp-val">${hs.targetTemp}°C</span><span>35°C</span></div>
+        <input type="range" min="15" max="35" value="${hs.targetTemp}" id="temp-slider"
+          oninput="document.getElementById('temp-val').textContent=this.value+'°C'"
+          onchange="setHeaterTemp(+this.value)">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Livello potenza</div>
+      <div class="level-pills" id="level-pills">
+        ${[1,2,3,4,5,6,7,8,9,10].map(l=>`<div class="level-pill ${hs.power===l?'active':''}" onclick="setHeaterLevel(${l})">${l}</div>`).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Info</div>
+      <div class="settings-row"><label>Tensione batteria</label><span style="color:var(--amber)">${hs.voltage} V</span></div>
+      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="heater.disconnect();renderHeater()">Disconnetti</button>
+    </div>
+  `;
+}
+
+// ── BMS screen ────────────────────────────────────────────────────────────────
+function renderBMS() {
+  const bs = state.bms;
+  if (!bs.connected) {
+    el('bms-body').innerHTML = `<div class="connect-placeholder"><div class="icon">🔋</div><p>Connetti il BMS XiaoXiang via Bluetooth</p><button class="btn btn-primary btn-full" onclick="connectBMS()">Connetti</button></div>`;
+    return;
+  }
+  const socN = parseInt(bs.soc) || 0;
+  const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
+  // SVG gauge arc
+  const r = 70, cx = 90, cy = 90, sw = 14;
+  const angle = (socN / 100) * 180;
+  const arcX = cx + r * Math.cos(Math.PI - angle * Math.PI/180);
+  const arcY = cy - r * Math.sin(angle * Math.PI/180);
+  const la = angle > 180 ? 1 : 0;
+
+  // Protection flags
+  const protFlags = [
+    [0,'Sovratensione cella'],[1,'Sottotensione cella'],[2,'Sovratensione pacco'],
+    [3,'Sottotensione pacco'],[4,'Temp carica alta'],[5,'Temp carica bassa'],
+    [6,'Temp scarica alta'],[7,'Temp scarica bassa'],[8,'Sovracorrente carica'],
+    [9,'Sovracorrente scarica'],[10,'Cortocircuito'],[11,'Errore MOSFET'],
+  ].filter(([bit]) => bs.protect & (1 << bit)).map(([,name]) => name);
+
+  el('bms-body').innerHTML = `
+    <div class="card" style="text-align:center">
+      <div class="card-title">Stato di carica</div>
+      <svg class="gauge-svg" viewBox="0 0 180 100" style="width:200px;height:120px">
+        <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
+        ${socN > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${socColor}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
+        <text x="${cx}" y="${cy-8}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">${bs.soc}%</text>
+        <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">SOC</text>
+      </svg>
+    </div>
+
+    <div class="grid-2">
+      ${statCard('Tensione','var(--blue)',bs.voltage,'V')}
+      ${statCard('Corrente','var(--amber)',bs.current,'A')}
+      ${statCard('Capacità res.',socColor,bs.remaining,'Ah')}
+      ${statCard('Capacità nom.','var(--text-2)',bs.capacity,'Ah')}
+      ${statCard('Cicli','var(--text)',bs.cycles,'')}
+      ${statCard('Temp.',bs.temps[0]>35?'var(--red)':'var(--green)',bs.temps[0]??'--','°C')}
+    </div>
+
+    ${bs.cells.length ? `
+    <div class="card">
+      <div class="card-title">Tensioni celle</div>
+      <div class="cell-grid">
+        ${bs.cells.map((v,i) => {
+          const vn = parseFloat(v);
+          const pct = Math.min(100, Math.max(0, ((vn - 2.8) / (4.2 - 2.8)) * 100)).toFixed(0);
+          const cls = vn < 3.0 ? 'danger' : vn < 3.3 ? 'warn' : '';
+          return `<div class="cell-item">
+            <div class="cell-label">C${i+1}</div>
+            <div class="cell-v" style="color:${cls==='danger'?'var(--red)':cls==='warn'?'var(--amber)':'var(--green)'}">${v}V</div>
+            <div class="cell-bar"><div class="cell-bar-fill ${cls}" style="width:${pct}%"></div></div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : ''}
+
+    ${protFlags.length ? `<div class="alert alert-err">⚠️ ${protFlags.join(' · ')}</div>` : ''}
+    <button class="btn btn-ghost btn-full" onclick="bms.disconnect();renderBMS()">Disconnetti</button>
+  `;
+}
+
+// ── Victron screen ────────────────────────────────────────────────────────────
+function renderVictron() {
+  const mpptCard = (m, idx) => {
+    const keyId = `victron_key_${idx}`;
+    return `
+    <div class="card">
+      <div class="card-row" style="margin-bottom:10px">
+        <span class="card-title" style="margin:0">${m.label}</span>
+        ${badge(m.connected ? 'green' : 'grey', m.connected ? 'BLE' : 'Off')}
+      </div>
+      ${m.connected ? `
+      <div class="mppt-grid">
+        <div class="mppt-stat"><div class="mppt-val" style="color:var(--amber)">${m.pvW}<small style="font-size:12px"> W</small></div><div class="mppt-lbl">Potenza PV</div></div>
+        <div class="mppt-stat"><div class="mppt-val" style="color:var(--blue)">${m.pvV??'--'}<small style="font-size:12px"> V</small></div><div class="mppt-lbl">Tensione PV</div></div>
+        <div class="mppt-stat"><div class="mppt-val" style="color:var(--green)">${m.battV}<small style="font-size:12px"> V</small></div><div class="mppt-lbl">Batt.</div></div>
+      </div>
+      <div class="divider"></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Stato</span><span style="font-size:12px">${m.cs}</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Oggi</span><span style="font-size:12px;color:var(--amber)">${m.yieldToday} kWh</span></div>
+      <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="${idx===1?'mppt1':'mppt2'}.disconnect();renderVictron()">Disconnetti</button>
+      ` : `
+      <button class="btn btn-primary btn-full" onclick="connectMPPT(${idx})">Connetti</button>
+      `}
+      <div class="divider"></div>
+      <div class="settings-row">
+        <label>Chiave cifratura</label>
+        <input type="password" id="${keyId}" placeholder="32 char hex" style="max-width:160px"
+          value="${localStorage.getItem(keyId)??''}"
+          onchange="saveVictronKey(${idx},this.value)">
+      </div>
+    </div>`;
+  };
+
+  el('victron-body').innerHTML = `
+    <div class="alert alert-warn">ℹ️ Chiave cifratura: VictronConnect → dispositivo → ⋮ → <strong>Show encryption data</strong></div>
+    ${mpptCard(state.mppt1, 1)}
+    ${mpptCard(state.mppt2, 2)}
+  `;
+}
+
+// ── Imou screen ───────────────────────────────────────────────────────────────
+function renderImou() {
+  const ic = state.imou;
+  if (!imou.hasCredentials()) {
+    el('imou-body').innerHTML = `
+      <div class="card">
+        <div class="card-title">Configurazione Imou</div>
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">
+          Registrati su <strong style="color:var(--amber)">open.imoulife.com</strong>, crea un'app e incolla le credenziali qui sotto.
+        </p>
+        <div class="settings-row"><label>App ID</label><input type="text" id="imou-id" placeholder="appId"></div>
+        <div class="settings-row"><label>App Secret</label><input type="password" id="imou-secret" placeholder="appSecret"></div>
+        <button class="btn btn-primary btn-full" style="margin-top:12px" onclick="saveImouCreds()">Salva e connetti</button>
+      </div>`;
+    return;
+  }
+  el('imou-body').innerHTML = ic.connected
+    ? `
+      ${ic.devices.length === 0 ? '<div class="connect-placeholder"><div class="icon">📷</div><p>Nessuna camera trovata sull\'account Imou</p></div>' : ''}
+      <div class="cam-grid">
+        ${ic.devices.map(d => `
+          <div class="cam-card" onclick="loadImouSnap('${d.id}',this)">
+            <div class="cam-offline">📷</div>
+            <div class="cam-name">${d.name}</div>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-ghost btn-full" style="margin-top:12px" onclick="imou.connect()">🔄 Aggiorna</button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="clearImouCreds()">Cambia credenziali</button>`
+    : `
+      <div class="connect-placeholder">
+        ${ic.error ? `<div class="alert alert-err" style="width:100%">❌ ${ic.error}</div>` : ''}
+        <div class="icon">📷</div><p>Non connesso</p>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="imou.connect()">Connetti</button>
+      <button class="btn btn-ghost btn-full" style="margin-top:8px" onclick="clearImouCreds()">Cambia credenziali</button>`;
+}
+
+// ── Settings screen ───────────────────────────────────────────────────────────
+function renderSettings() {
+  el('settings-body').innerHTML = `
+    <div class="card">
+      <div class="card-title">Generale</div>
+      <div class="settings-row"><label>Versione app</label><span style="color:var(--text-2)">1.0.0</span></div>
+      <div class="settings-row"><label>Aggiornamento</label><button class="btn btn-ghost" onclick="checkUpdate()">🔄 Verifica</button></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Reset connessioni</div>
+      <button class="btn btn-danger btn-full" onclick="disconnectAll()">Disconnetti tutto</button>
+    </div>`;
+}
+
+// ── Global actions ────────────────────────────────────────────────────────────
+window.connectHeater = async () => { toast('Ricerca riscaldatore…'); await heater.connect(); };
+window.connectBMS    = async () => { toast('Ricerca BMS…');          await bms.connect();    };
+window.connectMPPT   = async (i) => { toast(`Ricerca ${i===1?'MPPT 1':'MPPT 2'}…`); await (i===1?mppt1:mppt2).connect(); };
+
+window.toggleHeater = async () => {
+  const on = state.heater.state === 1 || state.heater.state === 2;
+  on ? await heater.turnOff() : await heater.turnOn();
+};
+window.setHeaterTemp  = (t) => heater.setTemp(t);
+window.setHeaterLevel = (l) => {
+  heater.setLevel(l);
+  document.querySelectorAll('.level-pill').forEach((p,i) => p.classList.toggle('active', i+1===l));
+};
+
+window.saveVictronKey = (idx, val) => {
+  localStorage.setItem(`victron_key_${idx}`, val);
+  (idx === 1 ? mppt1 : mppt2).setKey(val);
+  toast('Chiave salvata');
+};
+
+window.saveImouCreds = () => {
+  const id = el('imou-id')?.value?.trim();
+  const secret = el('imou-secret')?.value?.trim();
+  if (!id || !secret) { toast('Inserisci App ID e Secret'); return; }
+  imou.saveCredentials(id, secret);
+  imou.connect();
+};
+window.clearImouCreds = () => {
+  localStorage.removeItem('imou_app_id');
+  localStorage.removeItem('imou_app_secret');
+  imou.appId = ''; imou.appSecret = '';
+  renderImou();
+};
+window.loadImouSnap = async (deviceId, card) => {
+  const url = await imou.getSnapshot(deviceId);
+  if (url) { const img = document.createElement('img'); img.src = url; card.prepend(img); }
+};
+
+window.disconnectAll = () => { heater.disconnect(); bms.disconnect(); mppt1.disconnect(); mppt2.disconnect(); toast('Disconnesso'); };
+window.checkUpdate = () => { location.reload(true); };
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function el(id) { return document.getElementById(id); }
+function badge(type, text) { return `<span class="badge badge-${type}"><span class="badge-dot"></span>${text}</span>`; }
+function placeholder(icon, text) { return `<div style="text-align:center;padding:4px 0"><div style="font-size:28px;opacity:.4">${icon}</div><div style="font-size:12px;color:var(--text-2);margin-top:4px">${text}</div></div>`; }
+function statCard(label, color, value, unit) {
+  return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value" style="color:${color}">${value}<span class="stat-unit">${unit}</span></div></div>`;
+}
+
+let toastTimer;
+window.toast = (msg) => {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+};
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+renderDash();
+renderHeater();
+renderBMS();
+renderVictron();
+renderImou();
+renderSettings();
+updateDots();
+
+// Try to reconnect Imou if credentials are saved
+if (imou.hasCredentials()) imou.connect();
+
+// Service worker registration
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(console.error);
+}
