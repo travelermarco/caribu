@@ -98,6 +98,15 @@ function chargeStatus(current) {
   return { label: 'Standby', badge: 'grey' };
 }
 
+function battWatts(voltage, current) {
+  const v = parseFloat(voltage);
+  const a = parseFloat(current);
+  if (isNaN(v) || isNaN(a)) return null;
+  const w = v * a;
+  if (Math.abs(w) < 0.5) return null;
+  return w;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 function renderDash() {
   // Heater card
@@ -119,9 +128,11 @@ function renderDash() {
   const socColor = socNum >= 50 ? 'var(--green)' : socNum >= 20 ? 'var(--amber)' : 'var(--red)';
   const cs  = chargeStatus(bs.current);
   const eta = calcETA(bs.current, bs.remaining, bs.capacity);
+  const bmsW = battWatts(bs.voltage, bs.current);
+  const bmsWColor = bmsW > 0 ? 'var(--green)' : 'var(--amber)';
   el('dash-bms').innerHTML = bs.connected
     ? `<div class="big-num" style="color:${socColor};font-size:42px">${bs.soc}<span class="big-unit" style="font-size:16px">%</span></div>
-       <div class="stat-sub" style="margin-bottom:4px">${bs.voltage} V · ${bs.current} A</div>
+       <div class="stat-sub" style="margin-bottom:4px">${bs.voltage} V · ${bs.current} A${bmsW !== null ? ` · <span style="color:${bmsWColor};font-weight:700">${bmsW > 0 ? '+' : ''}${bmsW.toFixed(0)} W</span>` : ''}</div>
        <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">
          ${badge(cs.badge, cs.label)}
          ${eta !== null ? `<span class="badge badge-grey">⏱ ${eta}</span>` : ''}
@@ -220,8 +231,9 @@ function renderBMS() {
   }
   const socN = parseInt(bs.soc) || 0;
   const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
-  const cs  = chargeStatus(bs.current);
-  const eta = calcETA(bs.current, bs.remaining, bs.capacity);
+  const cs   = chargeStatus(bs.current);
+  const eta  = calcETA(bs.current, bs.remaining, bs.capacity);
+  const bmsW = battWatts(bs.voltage, bs.current);
 
   // SVG semicircle gauge
   const r = 70, cx = 90, cy = 95, sw = 14;
@@ -282,6 +294,7 @@ function renderBMS() {
     <div class="grid-2">
       ${statCard('Tensione', 'var(--blue)', bs.voltage, 'V')}
       ${statCard('Corrente', cs.badge === 'green' ? 'var(--green)' : cs.badge === 'amber' ? 'var(--amber)' : 'var(--text-2)', bs.current, 'A')}
+      ${bmsW !== null ? statCard('Potenza', bmsW > 0 ? 'var(--green)' : 'var(--amber)', (bmsW > 0 ? '+' : '') + bmsW.toFixed(0), 'W') : ''}
       ${statCard('Capacità res.', socColor, bs.remaining, 'Ah')}
       ${statCard('Capacità nom.', 'var(--text-2)', bs.capacity, 'Ah')}
       ${statCard('Cicli', 'var(--text)', bs.cycles, '')}

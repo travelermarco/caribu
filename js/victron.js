@@ -76,11 +76,13 @@ export class VictronMPPT {
 
   async connect() {
     try {
-      // acceptAllDevices: manufacturerData filter requires Chrome 92+ and may silently
-      // fail on some platforms. Victron data arrives via advertisements, no GATT needed.
+      // acceptAllDevices: Victron data arrives via BLE advertisements, no GATT needed.
+      // optionalManufacturerData: without this Chrome 92+ strips manufacturer data
+      // from advertisementreceived events, so event.manufacturerData.get(0x02E1) is always empty.
       this.device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: [],
+        optionalManufacturerData: [VICTRON_COMPANY_ID],
       });
       localStorage.setItem(`ble_${this.label.replace(/\s/g, '').toLowerCase()}_id`, this.device.id);
       return await this._startAdvertisements();
@@ -126,8 +128,10 @@ export class VictronMPPT {
   }
 
   _onAdv(event) {
+    const mfrKeys = [...(event.manufacturerData?.keys() ?? [])];
+    console.log(`[Victron ${this.label}] adv received — mfr IDs:`, mfrKeys.map(k => '0x' + k.toString(16)));
     const mfr = event.manufacturerData?.get(VICTRON_COMPANY_ID);
-    if (!mfr) return;
+    if (!mfr) { console.warn(`[Victron ${this.label}] no Victron mfr data (0x02E1) in adv`); return; }
     const raw = new Uint8Array(mfr.buffer);
     this.data.raw = raw;
 
