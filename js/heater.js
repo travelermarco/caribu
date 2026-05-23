@@ -13,6 +13,8 @@ const CMD = {
   OFF:      [0xAA, 0x55, 0x02, 0x00, 0x00, 0x00, 0x00],
   SET_TEMP: (t) => [0xAA, 0x55, 0x03, t & 0xFF, 0x00, 0x00, 0x00],
   SET_LVL:  (l) => [0xAA, 0x55, 0x04, l & 0xFF, 0x00, 0x00, 0x00],
+  // mode: 0=manual 1=thermostat (byte matches response inverted: resp 1=manual, 2=thermostat)
+  SET_MODE: (m) => [0xAA, 0x55, 0x05, m & 0xFF, 0x00, 0x00, 0x00],
 };
 
 export const HEATER_STATE = {
@@ -100,10 +102,43 @@ export class HeaterBLE {
     if (this.device?.gatt?.connected) this.device.gatt.disconnect();
   }
 
-  async turnOn()    { await this._send(CMD.ON); }
-  async turnOff()   { await this._send(CMD.OFF); }
-  async setTemp(t)  { this.data.targetTemp = t; await this._send(CMD.SET_TEMP(t)); }
-  async setLevel(l) { this.data.power = l; await this._send(CMD.SET_LVL(l)); }
+  async turnOn() {
+    this.data.state = 1; // optimistic: Avvio
+    this.onUpdate({ ...this.data });
+    await this._send(CMD.ON);
+    setTimeout(() => this._send(CMD.STATUS), 800);
+  }
+
+  async turnOff() {
+    this.data.state = 4; // optimistic: Raffreddamento
+    this.onUpdate({ ...this.data });
+    await this._send(CMD.OFF);
+    setTimeout(() => this._send(CMD.STATUS), 800);
+  }
+
+  async setTemp(t) {
+    this.data.targetTemp = t;
+    this.onUpdate({ ...this.data });
+    await this._send(CMD.SET_TEMP(t));
+  }
+
+  async setLevel(l) {
+    this.data.power = l;
+    this.onUpdate({ ...this.data });
+    await this._send(CMD.SET_LVL(l));
+  }
+
+  // mode 1 = Manuale, mode 2 = Termostato
+  // Dual approach: dedicated SET_MODE + reinforce with the matching control command
+  async setMode(m) {
+    this.data.mode = m;
+    this.onUpdate({ ...this.data });
+    await this._send(CMD.SET_MODE(m === 2 ? 1 : 0));
+    await new Promise(r => setTimeout(r, 150));
+    if (m === 2) await this._send(CMD.SET_TEMP(this.data.targetTemp));
+    else         await this._send(CMD.SET_LVL(this.data.power));
+    setTimeout(() => this._send(CMD.STATUS), 600);
+  }
 
   _startPoll() {
     clearInterval(this.pollTimer);

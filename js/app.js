@@ -20,6 +20,84 @@ const mppt1  = new VictronMPPT('MPPT 1', d => { Object.assign(state.mppt1, d); r
 const mppt2  = new VictronMPPT('MPPT 2', d => { Object.assign(state.mppt2, d); renderVictron(); renderDash(); updateDots(); });
 const imou   = new ImouAPI  (d => { Object.assign(state.imou, d); renderImou(); updateDots(); });
 
+// ── Heater schedule ───────────────────────────────────────────────────────────
+const sched = {
+  startTime: localStorage.getItem('heater_sched_start') || '',
+  stopTime:  localStorage.getItem('heater_sched_stop')  || '',
+  enabled:   localStorage.getItem('heater_sched_on') === '1',
+  startTimer: null,
+  stopTimer:  null,
+  countdownTimer: null,
+};
+
+function schedApply() {
+  clearTimeout(sched.startTimer);
+  clearTimeout(sched.stopTimer);
+  clearInterval(sched.countdownTimer);
+  if (!sched.enabled) { renderHeaterSched(); return; }
+
+  const msUntil = (hhmm) => {
+    if (!hhmm) return null;
+    const [h, m] = hhmm.split(':').map(Number);
+    const now = new Date();
+    const t = new Date(now); t.setHours(h, m, 0, 0);
+    if (t <= now) t.setDate(t.getDate() + 1);
+    return t - now;
+  };
+
+  const ms1 = msUntil(sched.startTime);
+  const ms2 = msUntil(sched.stopTime);
+  if (ms1 !== null) sched.startTimer = setTimeout(() => { heater.turnOn(); toast('⏰ Riscaldatore acceso (timer)'); }, ms1);
+  if (ms2 !== null) sched.stopTimer  = setTimeout(() => { heater.turnOff(); toast('⏰ Riscaldatore spento (timer)'); }, ms2);
+
+  sched.countdownTimer = setInterval(renderHeaterSched, 10000);
+  renderHeaterSched();
+}
+
+function renderHeaterSched() {
+  const el2 = document.getElementById('heater-sched');
+  if (!el2) return;
+  const countdown = (hhmm) => {
+    if (!hhmm) return '';
+    const [h, m] = hhmm.split(':').map(Number);
+    const now = new Date();
+    const t = new Date(now); t.setHours(h, m, 0, 0);
+    if (t <= now) t.setDate(t.getDate() + 1);
+    const diff = Math.round((t - now) / 60000);
+    const dh = Math.floor(diff / 60), dm = diff % 60;
+    return ` <span style="color:var(--text-2);font-size:11px">(tra ${dh > 0 ? dh + 'h ' : ''}${dm}m)</span>`;
+  };
+  el2.innerHTML = `
+    <div class="settings-row">
+      <label>Programmazione</label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="sched-enabled" ${sched.enabled ? 'checked' : ''} onchange="schedToggle(this.checked)" style="width:18px;height:18px;accent-color:var(--amber)">
+        <span style="font-size:13px">${sched.enabled ? 'Attiva' : 'Disattiva'}</span>
+      </label>
+    </div>
+    <div class="settings-row">
+      <label>Accendi alle${sched.enabled && sched.startTime ? countdown(sched.startTime) : ''}</label>
+      <input type="time" id="sched-start" value="${sched.startTime}"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:14px"
+        onchange="schedSave('start',this.value)">
+    </div>
+    <div class="settings-row">
+      <label>Spegni alle${sched.enabled && sched.stopTime ? countdown(sched.stopTime) : ''}</label>
+      <input type="time" id="sched-stop" value="${sched.stopTime}"
+        style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;color:var(--text);font-size:14px"
+        onchange="schedSave('stop',this.value)">
+    </div>
+    ${sched.enabled ? `<div style="font-size:11px;color:var(--amber);margin-top:4px">⏰ Timer attivo — mantieni l'app aperta</div>` : ''}
+  `;
+}
+
+window.schedToggle = (on) => { sched.enabled = on; localStorage.setItem('heater_sched_on', on ? '1' : '0'); schedApply(); };
+window.schedSave   = (k, v) => {
+  if (k === 'start') { sched.startTime = v; localStorage.setItem('heater_sched_start', v); }
+  else               { sched.stopTime  = v; localStorage.setItem('heater_sched_stop',  v); }
+  if (sched.enabled) schedApply(); else renderHeaterSched();
+};
+
 // Load saved Victron keys
 const k1 = localStorage.getItem('victron_key_1');
 const k2 = localStorage.getItem('victron_key_2');
@@ -196,30 +274,41 @@ function renderHeater() {
     </div>
 
     <div class="card">
-      <div class="card-title">Temperatura target</div>
-      <div class="slider-wrap">
+      <div class="card-title">Modalità</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ${hs.mode !== 2 ? 'btn-primary' : 'btn-ghost'} btn-full" onclick="setHeaterMode(1)">🔥 Manuale</button>
+        <button class="btn ${hs.mode === 2 ? 'btn-primary' : 'btn-ghost'} btn-full" onclick="setHeaterMode(2)">🌡️ Termostato</button>
+      </div>
+      ${hs.mode === 2 ? `
+      <div class="slider-wrap" style="margin-top:14px">
+        <div class="card-title" style="margin-bottom:8px">Temperatura target</div>
         <div class="slider-label"><span>15°C</span><span id="temp-val">${hs.targetTemp}°C</span><span>35°C</span></div>
         <input type="range" min="15" max="35" value="${hs.targetTemp}" id="temp-slider"
           oninput="document.getElementById('temp-val').textContent=this.value+'°C'"
           onchange="setHeaterTemp(+this.value)">
-      </div>
+      </div>` : `
+      <div style="margin-top:14px">
+        <div class="card-title" style="margin-bottom:8px">Livello potenza</div>
+        <div class="level-pills">
+          ${[1,2,3,4,5,6,7,8,9,10].map(l => `<div class="level-pill ${hs.power===l?'active':''}" onclick="setHeaterLevel(${l})">${l}</div>`).join('')}
+        </div>
+      </div>`}
     </div>
 
     <div class="card">
-      <div class="card-title">Livello potenza</div>
-      <div class="level-pills">
-        ${[1,2,3,4,5,6,7,8,9,10].map(l => `<div class="level-pill ${hs.power===l?'active':''}" onclick="setHeaterLevel(${l})">${l}</div>`).join('')}
-      </div>
+      <div class="card-title">Programmazione accensione</div>
+      <div id="heater-sched"></div>
     </div>
 
     <div class="card">
       <div class="card-title">Info</div>
       <div class="settings-row"><label>Tensione batteria</label><span style="color:var(--amber)">${hs.voltage} V</span></div>
-      <div class="settings-row"><label>Modalità</label><span>${modeLabel}</span></div>
+      <div class="settings-row"><label>Modalità attiva</label><span>${modeLabel}</span></div>
       ${errLabel ? `<div class="settings-row"><label>Errore</label><span style="color:var(--red)">${errLabel}</span></div>` : ''}
       <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window.heater.disconnect();renderHeater()">Disconnetti</button>
     </div>
   `;
+  renderHeaterSched();
 }
 
 // ── BMS screen ────────────────────────────────────────────────────────────────
@@ -495,6 +584,7 @@ window.setHeaterLevel = (l) => {
   heater.setLevel(l);
   document.querySelectorAll('.level-pill').forEach((p, i) => p.classList.toggle('active', i + 1 === l));
 };
+window.setHeaterMode = (m) => heater.setMode(m);
 
 window.saveVictronKey = (idx, val) => {
   localStorage.setItem(`victron_key_${idx}`, val);
@@ -557,6 +647,7 @@ renderSettings();
 updateDots();
 
 if (imou.hasCredentials()) imou.connect();
+schedApply();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(console.error);
