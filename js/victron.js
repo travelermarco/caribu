@@ -213,48 +213,42 @@ export class VictronMPPT {
     // battV=13.50V ✓  battA=10.45A ✓  yieldToday=0.53kWh ✓  pvW=147W ✓
     const cs      = bits(0,  4);    // charge state enum
     const errCode = bits(4,  8);    // error code
-    const battVr  = bits(16, 11);   // 10mV/unit → ÷100 = V   (1350→13.50V ✓)
-    const battIr  = bits(22, 11);   // 10mA/unit → ÷100 = A   (1045→10.45A ✓)
-    const yTr     = bits(33, 9);    // 10Wh/unit → ÷100 = kWh (53→0.53kWh ✓)
-    // bits 40-55: pvV as 16-bit LE — estimated, compare with VictronConnect to verify
-    const pvVr    = bits(40, 16);   // 10mV/unit → ÷100 = V
-    const pvWr    = bits(64, 8);    // 1W/unit              (0x93=147W ✓)
-    const yYr     = bits(72, 9);    // 10Wh/unit → ÷100 = kWh
-    const maxPWr  = bits(81, 8);    // 1W/unit
+    const battVr = bits(16, 11);  // 10mV/unit → ÷100 = V   (1350→13.50V ✓)
+    const battIr = bits(22, 10);  // 0.5A/unit               (21×0.5=10.5A ✓, 10bit fixes jumping)
+    const yTr    = bits(33, 9);   // 10Wh/unit → ÷100 = kWh  (53→0.53kWh ✓)
+    // bits 40-63: unknown layout — pvV position not confirmed, shown as diagnostic raw
+    const pvVr   = bits(48, 8);   // pvV candidate: byte6 — unit/pos to verify with VictronConnect
+    const pvWr   = bits(64, 8);   // 1W/unit                  (0x93=147W ✓)
+    const yYr    = bits(72, 8);   // yield yesterday candidate — verify with VictronConnect
+    const maxPWr = bits(80, 8);   // max power today candidate — verify with VictronConnect
 
+    const NA11 = 0x7FF;
+    const NA10 = 0x3FF;
     const NA9  = 0x1FF;
     const NA8  = 0xFF;
-    const NA11 = 0x7FF;
-    const NA16 = 0xFFFF;
 
-    this.data.csNum     = cs;
-    this.data.cs        = CS[cs]       ?? `CS ${cs}`;
-    this.data.isCharging = (cs === 3 || cs === 4); // Bulk or Absorption = actively charging
-    this.data.error     = ERR[errCode] ?? (errCode === 0 ? 'No error' : `Err ${errCode}`);
+    this.data.csNum      = cs;
+    this.data.cs         = CS[cs]       ?? `CS ${cs}`;
+    this.data.isCharging = (cs === 3 || cs === 4);
+    this.data.error      = ERR[errCode] ?? (errCode === 0 ? 'No error' : `Err ${errCode}`);
 
-    const battVval = battVr === NA11  ? null : battVr * 0.01;
-    const battIval = battIr === NA11  ? null : battIr * 0.01;
-    const pvVval   = pvVr   === NA16  ? null : pvVr   * 0.01;
-    const pvWval   = pvWr   === NA8   ? null : pvWr;
+    const battVval = battVr === NA11 ? null : battVr * 0.01;
+    const battIval = battIr === NA10 ? null : battIr * 0.5;
+    const pvWval   = pvWr   === NA8  ? null : pvWr;
 
     this.data.battV = battVval !== null ? battVval.toFixed(2) : '--';
-    this.data.battA = battIval !== null ? battIval.toFixed(2) : '--';
-
-    // Battery charging power (MPPT output side)
+    this.data.battA = battIval !== null ? battIval.toFixed(1) : '--';
     this.data.battW = (battVval !== null && battIval !== null)
       ? (battVval * battIval).toFixed(0) : '--';
 
     this.data.pvW = pvWval !== null ? pvWval.toString() : '--';
 
-    // PV voltage (estimated position — verify with VictronConnect)
-    this.data.pvV = pvVval !== null ? pvVval.toFixed(1) : '--';
-
-    // PV current derived: pvW / pvV
-    this.data.pvA = (pvVval !== null && pvVval > 0.5 && pvWval !== null)
-      ? (pvWval / pvVval).toFixed(2) : '--';
+    // pvV/pvA: position not confirmed — shown only in diagnostic for calibration
+    this.data.pvV = '--';
+    this.data.pvA = '--';
 
     this.data.yieldToday     = yTr    === NA9 ? '--' : (yTr    * 0.01).toFixed(2);
-    this.data.yieldYesterday = yYr    === NA9 ? '--' : (yYr    * 0.01).toFixed(2);
+    this.data.yieldYesterday = yYr    === NA8 ? '--' : (yYr * 0.1).toFixed(1);
     this.data.maxPowerToday  = maxPWr === NA8 ? '--' : maxPWr.toString();
 
     this.data.plainHex = [...d].map(b => b.toString(16).padStart(2,'0')).join(' ');
