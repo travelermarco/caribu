@@ -92,30 +92,36 @@ export class HeaterBLE {
     const server  = await this.device.gatt.connect();
     const service = await server.getPrimaryService(HEATER_SERVICE);
 
-    // FFE1 is the standard UART char — notify + write on genuine HM-10.
-    // Some clones split it: FFE1=notify-only, FFE2=write-only.
-    this.notifyChar = await service.getCharacteristic(FFE1);
-    this.writeChar  = this.notifyChar;
+    // Enumerate ALL characteristics in FFE0.
+    // Some HM-10 clones split TX/RX: write on FFE1, responses on FFE2 (or vice versa).
+    // Subscribing only to FFE1 misses responses that arrive on FFE2.
+    // Fix: subscribe to EVERY char that reports notify; fall back to subscribing all.
+    const chars = await service.getCharacteristics();
+    const pStr  = c => `n:${c.properties.notify?1:0} w:${c.properties.write?1:0} wwr:${c.properties.writeWithoutResponse?1:0}`;
+    console.log('Heater chars:', chars.map(c => `${c.uuid.slice(4,8)}[${pStr(c)}]`).join(' | '));
 
-    if (!this.notifyChar.properties.write && !this.notifyChar.properties.writeWithoutResponse) {
+    // Write char: first char with write or writeWithoutResponse property
+    this.writeChar = chars.find(c => c.properties.write || c.properties.writeWithoutResponse) ?? chars[0];
+
+    // Subscribe to notifications: all chars with notify/indicate (or all if none report it)
+    const notifyChars = chars.filter(c => c.properties.notify || c.properties.indicate);
+    const toSubscribe = notifyChars.length > 0 ? notifyChars : chars;
+    for (const c of toSubscribe) {
       try {
-        this.writeChar = await service.getCharacteristic(FFE2);
-        console.log('Heater: split-char mode — FFE1 notify, FFE2 write');
-      } catch { /* no FFE2; will write to FFE1 anyway and see what happens */ }
+        await c.startNotifications();
+        c.addEventListener('characteristicvaluechanged', e => this._parse(e.target.value));
+        console.log(`Heater: subscribed to ${c.uuid.slice(4,8)}`);
+      } catch (e) {
+        console.warn(`Heater: startNotifications failed on ${c.uuid.slice(4,8)}:`, e.message);
+      }
     }
 
-    const nc = this.notifyChar, wc = this.writeChar;
-    const ncInfo = `${nc.uuid.slice(4,8)} n=${nc.properties.notify} w=${nc.properties.write} wwr=${nc.properties.writeWithoutResponse}`;
-    const wcInfo = `${wc.uuid.slice(4,8)} w=${wc.properties.write} wwr=${wc.properties.writeWithoutResponse}`;
-    console.log('Heater notifyChar:', ncInfo);
-    console.log('Heater writeChar: ', wcInfo);
-    this.data.bleInfo = `notify: ${ncInfo} | write: ${wcInfo}`;
+    const wc = this.writeChar;
+    const subList = toSubscribe.map(c => c.uuid.slice(4,8)).join('+');
+    this.data.bleInfo = `chars: ${chars.map(c => `${c.uuid.slice(4,8)}[${pStr(c)}]`).join(' ')} | write→${wc.uuid.slice(4,8)} | rx←${subList}`;
 
-    await this.notifyChar.startNotifications();
-    this.notifyChar.addEventListener('characteristicvaluechanged', e => this._parse(e.target.value));
-
-    this.data.connected = true;
-    this.data.error = null;
+    this.data.connected    = true;
+    this.data.error        = null;
     this.data.lastWriteErr = null;
     this.onUpdate({ ...this.data });
 
