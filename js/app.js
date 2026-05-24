@@ -34,8 +34,8 @@ const chartPVPower = new MiniChart({
 const state = {
   heater: { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1, errorCode:0, mode:1 },
   bms:    { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0, fetCharge:true, fetDischarge:true, balance:0, cellCount:0 },
-  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', pvW:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
-  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', pvW:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
+  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', battW:'--', pvW:'--', pvV:'--', pvA:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', csNum:-1, isCharging:false, error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
+  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', battW:'--', pvW:'--', pvV:'--', pvA:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', csNum:-1, isCharging:false, error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
   imou:   { connected:false, devices:[], error:null },
 };
 
@@ -491,52 +491,77 @@ function renderBMS() {
 }
 
 // ── Victron screen ────────────────────────────────────────────────────────────
+function csInfo(csNum) {
+  if (csNum === 3 || csNum === 4) return { color: 'var(--green)',  label: csNum === 3 ? 'Bulk' : 'Absorption', dot: 'green' };
+  if (csNum === 5)                return { color: 'var(--blue)',   label: 'Float',   dot: 'ok' };
+  if (csNum === 6)                return { color: 'var(--blue)',   label: 'Storage', dot: 'ok' };
+  if (csNum === 2)                return { color: 'var(--red)',    label: 'Fault',   dot: 'err' };
+  if (csNum === 1)                return { color: 'var(--amber)',  label: 'Low pwr', dot: 'connecting' };
+  if (csNum === 7)                return { color: 'var(--amber)',  label: 'Equalize',dot: 'connecting' };
+  return                                 { color: 'var(--text-2)', label: 'Off',     dot: '' };
+}
+
 function renderVictron() {
   const mpptCard = (m, idx) => {
     const keyId  = `victron_key_${idx}`;
-    const pvWnum = parseFloat(m.pvW)  || 0;
-    const pvVnum = parseFloat(m.pvV)  || 0;
-    // Circular PV power gauge (max 300W typical panel)
-    const pvMax  = 300;
-    const pvPct  = Math.min(100, (pvWnum / pvMax) * 100);
-    const r = 50, cx = 60, cy = 65, sw = 10;
-    const angle = (pvPct / 100) * 180;
+    const pvWnum = parseFloat(m.pvW) || 0;
+    const cs     = csInfo(m.csNum);
+    const glowColor = m.isCharging ? 'rgba(74,222,128,.25)' : 'transparent';
+
+    // Circular PV power arc gauge
+    const pvMax = 300, r = 54, cx = 65, cy = 70, sw = 11;
+    const angle = Math.min(180, (pvWnum / pvMax) * 180);
     const arcX  = cx + r * Math.cos(Math.PI - angle * Math.PI / 180);
     const arcY  = cy - r * Math.sin(angle * Math.PI / 180);
     const la    = angle > 180 ? 1 : 0;
     const pvGauge = `
-      <svg viewBox="0 0 120 75" style="width:130px;height:80px">
+      <svg viewBox="0 0 130 82" style="width:160px;height:98px">
         <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
-        ${pvWnum > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="var(--amber)" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
-        <text x="${cx}" y="${cy-8}" text-anchor="middle" font-size="16" font-weight="800" fill="var(--amber)">${m.pvW}</text>
-        <text x="${cx}" y="${cy+8}" text-anchor="middle" font-size="9" fill="var(--text-2)">W PV</text>
+        ${pvWnum > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${cs.color}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
+        <text x="${cx}" y="${cy-14}" text-anchor="middle" font-size="22" font-weight="800" fill="${cs.color}">${m.pvW}</text>
+        <text x="${cx}" y="${cy+2}" text-anchor="middle" font-size="10" fill="var(--text-2)">W solare</text>
       </svg>`;
 
     return `
-    <div class="card">
+    <div class="card" style="box-shadow:0 0 0 2px ${m.isCharging ? 'rgba(74,222,128,.3)' : 'transparent'}">
       <div class="card-row" style="margin-bottom:10px">
         <span class="card-title" style="margin:0">${m.label}</span>
-        ${badge(m.connected ? 'green' : 'grey', m.connected ? 'BLE' : 'Off')}
+        <div style="display:flex;gap:6px;align-items:center">
+          ${m.connected ? `<span class="badge badge-${m.isCharging ? 'green' : m.csNum === 5 || m.csNum === 6 ? 'amber' : 'grey'}"
+            style="${m.isCharging ? `background:${glowColor}` : ''}">
+            <span class="badge-dot"></span>${cs.label}
+          </span>` : ''}
+          ${badge(m.connected ? 'green' : 'grey', m.connected ? 'BLE' : 'Off')}
+        </div>
       </div>
       ${m.connected ? `
-      <div style="text-align:center;margin-bottom:12px">
-        ${pvGauge}
+      <div style="display:flex;align-items:center;gap:4px;margin-bottom:10px">
+        <div style="flex:0 0 auto">${pvGauge}</div>
+        <div style="flex:1">
+          <div class="stat-label">Volt PV</div>
+          <div style="font-size:20px;font-weight:700;color:var(--amber)">${m.pvV}<span style="font-size:12px;color:var(--text-2);margin-left:2px">V</span></div>
+          <div class="stat-label" style="margin-top:6px">Corrente PV</div>
+          <div style="font-size:20px;font-weight:700;color:var(--amber)">${m.pvA}<span style="font-size:12px;color:var(--text-2);margin-left:2px">A</span></div>
+        </div>
       </div>
 
       <div class="grid-2" style="margin-bottom:10px">
         ${statCard('Batt. V', 'var(--green)', m.battV, 'V')}
-        ${statCard('Batt. A', 'var(--blue)', m.battA, 'A')}
-        ${statCard('Carico est.', 'var(--text-2)', m.extLoad, 'A')}
+        ${statCard('Batt. A', 'var(--blue)',  m.battA, 'A')}
+        ${statCard('Batt. W', m.isCharging ? 'var(--green)' : 'var(--text-2)', m.battW, 'W')}
         ${statCard('Max oggi', 'var(--amber)', m.maxPowerToday, 'W')}
       </div>
 
       <div class="divider"></div>
-      <div class="card-row" style="padding:6px 0"><span style="font-size:12px;color:var(--text-2)">Stato carica</span><span style="font-size:12px;font-weight:600">${m.cs}</span></div>
-      <div class="card-row" style="padding:6px 0"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px">${m.error}</span></div>
+      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Stato</span><span style="font-size:12px;font-weight:600;color:${cs.color}">${m.cs}</span></div>
+      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px">${m.error}</span></div>
       <div class="divider"></div>
-      <div class="card-row" style="padding:6px 0"><span style="font-size:12px;color:var(--text-2)">Resa oggi</span><span style="font-size:13px;color:var(--amber);font-weight:700">${m.yieldToday} kWh</span></div>
-      <div class="card-row" style="padding:6px 0"><span style="font-size:12px;color:var(--text-2)">Resa ieri</span><span style="font-size:13px;font-weight:600">${m.yieldYesterday} kWh</span></div>
-      ${m.lastUpdate ? `<div style="font-size:10px;color:var(--text-2);margin-top:6px">Aggiornato: ${m.lastUpdate}</div>` : ''}
+      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Resa oggi</span><span style="font-size:13px;color:var(--amber);font-weight:700">${m.yieldToday} kWh</span></div>
+      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Resa ieri</span><span style="font-size:13px;font-weight:600">${m.yieldYesterday} kWh</span></div>
+      ${m.lastUpdate ? `<div style="font-size:10px;color:var(--text-2);margin-top:4px">Aggiornato: ${m.lastUpdate}</div>` : ''}
+      ${m.plainHex ? `<div style="background:var(--bg);border-radius:6px;padding:6px 8px;margin-top:8px;font-size:9px;font-family:monospace;color:var(--text-2);word-break:break-all">
+        RAW: ${m.plainHex}<br>pvVr=${m.plainRaw?.pvVr} yYr=${m.plainRaw?.yYr} maxPWr=${m.plainRaw?.maxPWr}
+      </div>` : ''}
       <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="(${idx===1?'window.mppt1':'window.mppt2'}).disconnect();renderVictron()">Disconnetti</button>
       ` : `
       <button class="btn btn-primary btn-full" onclick="connectMPPT(${idx})">Connetti</button>
