@@ -54,6 +54,8 @@ export class HeaterBLE {
       connected: false, state: 0, currentTemp: '--', targetTemp: 20,
       voltage: '--', power: 1, errorCode: 0, mode: 1,
       error: null, rawHex: null, lastTx: null, lastWriteErr: null,
+      bleLog: [],   // [{dir,hex,t}] — last 12 frames TX+RX
+      bleInfo: null, // char UUIDs + properties string
     };
   }
 
@@ -103,8 +105,11 @@ export class HeaterBLE {
     }
 
     const nc = this.notifyChar, wc = this.writeChar;
-    console.log(`Heater notifyChar ${nc.uuid.slice(4,8)}: n=${nc.properties.notify} w=${nc.properties.write} wwr=${nc.properties.writeWithoutResponse}`);
-    console.log(`Heater writeChar  ${wc.uuid.slice(4,8)}: n=${wc.properties.notify} w=${wc.properties.write} wwr=${wc.properties.writeWithoutResponse}`);
+    const ncInfo = `${nc.uuid.slice(4,8)} n=${nc.properties.notify} w=${nc.properties.write} wwr=${nc.properties.writeWithoutResponse}`;
+    const wcInfo = `${wc.uuid.slice(4,8)} w=${wc.properties.write} wwr=${wc.properties.writeWithoutResponse}`;
+    console.log('Heater notifyChar:', ncInfo);
+    console.log('Heater writeChar: ', wcInfo);
+    this.data.bleInfo = `notify: ${ncInfo} | write: ${wcInfo}`;
 
     await this.notifyChar.startNotifications();
     this.notifyChar.addEventListener('characteristicvaluechanged', e => this._parse(e.target.value));
@@ -177,8 +182,10 @@ export class HeaterBLE {
     if (!this.writeChar) return;
     const data = new Uint8Array(cmd);
     const hex  = [...data].map(b => b.toString(16).padStart(2,'0')).join(' ');
+    const t    = new Date().toLocaleTimeString('it-IT', { hour12: false });
     console.log('Heater TX →', hex);
     this.data.lastTx = hex;
+    this.data.bleLog = [{ dir: 'TX', hex, t }, ...this.data.bleLog].slice(0, 12);
 
     const c = this.writeChar;
     // writeValueWithResponse gives a BLE-layer ACK — we know delivery happened.
@@ -207,8 +214,10 @@ export class HeaterBLE {
   _parse(dv) {
     const b = new Uint8Array(dv.buffer);
     const rawHex = [...b].map(x => x.toString(16).padStart(2,'0')).join(' ');
+    const t      = new Date().toLocaleTimeString('it-IT', { hour12: false });
     console.log('Heater RX ←', rawHex);
     this.data.rawHex = rawHex;
+    this.data.bleLog = [{ dir: 'RX', hex: rawHex, t }, ...this.data.bleLog].slice(0, 12);
 
     if (b.length >= 2 && (b[0] !== 0xAA || b[1] !== 0x55)) {
       console.warn('Heater RX: unexpected header —', rawHex);
@@ -232,6 +241,14 @@ export class HeaterBLE {
     this.writeChar = null; this.notifyChar = null;
     this.data.connected = false;
     this.onUpdate({ ...this.data });
+  }
+
+  // Parse a hex string like "aa 55 01 01 00 00 00" and send it directly
+  async sendHex(hexStr) {
+    const bytes = (hexStr ?? '').replace(/[^0-9a-fA-F]/g, ' ').trim()
+      .split(/\s+/).map(h => parseInt(h, 16)).filter(n => !isNaN(n) && n <= 255);
+    if (!bytes.length) return;
+    await this._send(bytes);
   }
 
   stateLabel() { return HEATER_STATE[this.data.state] ?? 'Sconosciuto'; }
