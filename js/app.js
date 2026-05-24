@@ -34,8 +34,8 @@ const chartPVPower = new MiniChart({
 const state = {
   heater: { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1, errorCode:0, mode:1 },
   bms:    { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0, fetCharge:true, fetDischarge:true, balance:0, cellCount:0 },
-  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', pvW:'--', pvV:'--', pvA:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
-  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', pvW:'--', pvV:'--', pvA:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
+  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', pvW:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
+  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', pvW:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
   imou:   { connected:false, devices:[], error:null },
 };
 
@@ -519,14 +519,8 @@ function renderVictron() {
         ${badge(m.connected ? 'green' : 'grey', m.connected ? 'BLE' : 'Off')}
       </div>
       ${m.connected ? `
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-        <div style="flex:0 0 auto">${pvGauge}</div>
-        <div style="flex:1">
-          <div class="stat-label">Tensione PV</div>
-          <div style="font-size:22px;font-weight:700;color:var(--amber)">${m.pvV}<span style="font-size:13px;color:var(--text-2);margin-left:2px">V</span></div>
-          <div class="stat-label" style="margin-top:8px">Corrente PV</div>
-          <div style="font-size:22px;font-weight:700;color:var(--amber)">${m.pvA}<span style="font-size:13px;color:var(--text-2);margin-left:2px">A</span></div>
-        </div>
+      <div style="text-align:center;margin-bottom:12px">
+        ${pvGauge}
       </div>
 
       <div class="grid-2" style="margin-bottom:10px">

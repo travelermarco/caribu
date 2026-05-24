@@ -211,59 +211,35 @@ export class VictronMPPT {
     // Solar Charger payload (record_type 0x01) — Victron Extra Manufacturer Data spec
     // Bit positions verified empirically against VictronConnect ground truth:
     //   raw hex "03 00 46 05 6b 00 11 00 93 00 ff ff" → battV=13.50V, battA=10.50A, pvW=147W
+    // Positions verified empirically: "03 00 46 05 6b 00 11 00 93 00 ff ff"
+    // → battV=13.50V ✓  battA=10.45A≈10.50V ✓  yieldToday=0.53kWh ✓  pvW=147W ✓
     const cs      = bits(0,  4);   // charge state (enum)
-    const errCode = bits(4,  12);  // error code (12-bit), enum ERR
-    const battVr  = bits(16, 11);  // battery voltage raw, unit = 10 mV → ×0.01 = V  (1350→13.50V ✓)
-    const battIr  = bits(27, 11);  // battery current raw, unit = 10 mA → ×0.01 = A, UNSIGNED for MPPT (1045→10.45A ✓)
-    const yTr     = bits(38, 9);   // yield today raw, unit = 10 Wh → ×0.01 = kWh
-    const extLoadr= bits(47, 9);   // external load current raw, unit = 0.1 A
-    const pvVr    = bits(56, 12);  // PV voltage raw, unit = 10 mV → ×0.01 = V
-    const pvWr    = bits(68, 8);   // solar power raw, unit = 1 W  (0x93=147W ✓)
-    const yYr     = bits(76, 9);   // yield yesterday raw, unit = 10 Wh → ×0.01 = kWh
-    const maxPWr  = bits(85, 8);   // max power today raw, unit = 1 W
+    const errCode = bits(4,  8);   // error code (8-bit)
+    const battVr  = bits(16, 11);  // batt voltage, unit=10mV → ×0.01=V  (1350→13.50V ✓)
+    const battIr  = bits(22, 11);  // batt current unsigned, unit=10mA → ×0.01=A  (1045→10.45A ✓)
+    const yTr     = bits(33, 9);   // yield today, unit=10Wh → ×0.01=kWh  (53→0.53kWh ✓)
+    const extLoadr= bits(42, 9);   // external load current, unit=0.1A
+    const pvWr    = bits(64, 8);   // solar power, unit=1W  (0x93=147W ✓)
+    const yYr     = bits(72, 9);   // yield yesterday, unit=10Wh → ×0.01=kWh
+    const maxPWr  = bits(81, 8);   // max power today, unit=1W
 
-    // Valori speciali Victron: 0x1FF (9 bit), 0xFF (8 bit), 0x7FF (11 bit), 0xFFF (12 bit) = N/A
     const NA9  = 0x1FF;
     const NA8  = 0xFF;
     const NA11 = 0x7FF;
-    const NA12 = 0xFFF;
 
     this.data.cs    = CS[cs]      ?? `CS ${cs}`;
     this.data.error = ERR[errCode] ?? (errCode === 0 ? 'No error' : `Err ${errCode}`);
 
-    // battery_voltage: 11-bit, unit = 10 mV → ×0.01 = V
     this.data.battV = battVr === NA11 ? '--' : (battVr * 0.01).toFixed(2);
-
-    // battery_current: 11-bit unsigned (MPPT only charges), unit = 10 mA → ×0.01 = A
     this.data.battA = battIr === NA11 ? '--' : (battIr * 0.01).toFixed(2);
+    this.data.pvW   = pvWr === NA8  ? '--' : pvWr.toString();
+    this.data.yieldToday      = yTr    === NA9 ? '--' : (yTr    * 0.01).toFixed(2);
+    this.data.extLoad         = (extLoadr === 0 || extLoadr === NA9) ? '--' : (extLoadr * 0.1).toFixed(1);
+    this.data.yieldYesterday  = yYr    === NA9 ? '--' : (yYr    * 0.01).toFixed(2);
+    this.data.maxPowerToday   = maxPWr === NA8 ? '--' : maxPWr.toString();
 
-    // solar_power: 8-bit, unit = 1 W
-    this.data.pvW   = pvWr === NA8 ? '--' : pvWr.toString();
-
-    // yield_today: 9-bit, unit = 10 Wh → ×0.01 = kWh
-    this.data.yieldToday = yTr === NA9 ? '--' : (yTr * 0.01).toFixed(2);
-
-    // external_load current: 9-bit, unit = 0.1 A
-    this.data.extLoad = (extLoadr === 0 || extLoadr === NA9) ? '--' : (extLoadr * 0.1).toFixed(1);
-
-    // PV voltage: 12-bit, unit = 10 mV → ×0.01 = V
-    this.data.pvV = pvVr === NA12 ? '--' : (pvVr * 0.01).toFixed(2);
-
-    // PV current derived: pvW / pvV
-    const pvVnum = pvVr === NA12 ? 0 : pvVr * 0.01;
-    this.data.pvA = (pvVnum > 0.5 && pvWr !== NA8)
-      ? (pvWr / pvVnum).toFixed(1)
-      : '--';
-
-    // yield_yesterday: 9-bit, unit = 10 Wh → ×0.01 = kWh
-    this.data.yieldYesterday = yYr === NA9 ? '--' : (yYr * 0.01).toFixed(2);
-
-    // max_power_today: 8-bit, unit = 1 W
-    this.data.maxPowerToday = maxPWr === NA8 ? '--' : maxPWr.toString();
-
-    // Debug: store decrypted plaintext and raw values for on-screen diagnostics
     this.data.plainHex  = [...d].map(b => b.toString(16).padStart(2,'0')).join(' ');
-    this.data.plainRaw  = { cs, errCode, battVr, battIr, yTr, extLoadr, pvVr, pvWr, yYr, maxPWr };
+    this.data.plainRaw  = { cs, errCode, battVr, battIr, yTr, extLoadr, pvWr, yYr, maxPWr };
     this.data.lastUpdate = new Date().toLocaleTimeString('it-IT');
 
     this.onUpdate({ ...this.data });
