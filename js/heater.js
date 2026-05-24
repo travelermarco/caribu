@@ -1,21 +1,12 @@
 'use strict';
 // ── Diesel Heater BLE (Vevor / Hcalory / generic Chinese UART-over-BLE) ────
-// Service:        0000ffe0-0000-1000-8000-00805f9b34fb
-// Characteristic: 0000ffe1-0000-1000-8000-00805f9b34fb (notify + write)
-//   Split-char clones: FFE1=notify, FFE2=write — _connectDevice handles both.
-//
-// Protocol: 7-byte frames [0xAA, 0x55, cmd, data, 0x00, 0x00, 0x00]
-// Response: [0xAA, 0x55, state, targetT, currentT, volt×10, power, errorCode?, mode?]
+// Service:  0000ffe0-0000-1000-8000-00805f9b34fb
+// Protocol: [0xAA, 0x55, cmd, data, 0x00, 0x00, 0x00]
+//   ON  = cmd 0x01 data 0x01
+//   OFF = cmd 0x01 data 0x00
 
 const HEATER_SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb';
-const FFE1 = '0000ffe1-0000-1000-8000-00805f9b34fb';
-const FFE2 = '0000ffe2-0000-1000-8000-00805f9b34fb';
 
-// cmd=0x01, data=0x01 → power ON
-// cmd=0x01, data=0x00 → power OFF
-// Same command byte, different data — verified across Vevor/Hcalory/generic firmwares.
-// The old approach (ON_A=01 00, ON_B=01 01, OFF=02 xx) was wrong: 0x02 is undefined
-// and 01 00 is OFF, so turnOn() was sending OFF then ON and turnOff() did nothing.
 const CMD = {
   ON:       [0xAA, 0x55, 0x01, 0x01, 0x00, 0x00, 0x00],
   OFF:      [0xAA, 0x55, 0x01, 0x00, 0x00, 0x00, 0x00],
@@ -32,14 +23,10 @@ export const HEATER_STATE = {
 
 export const HEATER_ERROR = {
   0: null,
-  1: 'E-01 Avvio fallito',
-  2: 'E-02 Mancanza carburante',
-  3: 'E-03 Tensione bassa',
-  4: 'E-04 Sensore temperatura',
-  5: 'E-05 Surriscaldamento',
-  6: 'E-06 Pompa carburante',
-  8: 'E-08 Sovratemperatura',
-  9: 'E-09 Ventilatore',
+  1: 'E-01 Avvio fallito',       2: 'E-02 Mancanza carburante',
+  3: 'E-03 Tensione bassa',      4: 'E-04 Sensore temperatura',
+  5: 'E-05 Surriscaldamento',    6: 'E-06 Pompa carburante',
+  8: 'E-08 Sovratemperatura',    9: 'E-09 Ventilatore',
   10: 'E-10 Sensore fiamma',
 };
 
@@ -48,14 +35,14 @@ export class HeaterBLE {
     this.onUpdate   = onUpdate;
     this.device     = null;
     this.writeChar  = null;
-    this.notifyChar = null;
     this.pollTimer  = null;
+    this._readPoll  = null;
+    this._lastReadMap = {};
     this.data = {
       connected: false, state: 0, currentTemp: '--', targetTemp: 20,
       voltage: '--', power: 1, errorCode: 0, mode: 1,
       error: null, rawHex: null, lastTx: null, lastWriteErr: null,
-      bleLog: [],   // [{dir,hex,t}] — last 12 frames TX+RX
-      bleInfo: null, // char UUIDs + properties string
+      bleLog: [], bleInfo: null,
     };
   }
 
@@ -91,40 +78,68 @@ export class HeaterBLE {
     this.device.addEventListener('gattserverdisconnected', () => this._onDisconnect());
     const server  = await this.device.gatt.connect();
     const service = await server.getPrimaryService(HEATER_SERVICE);
+    const chars   = await service.getCharacteristics();
 
-    // Enumerate ALL characteristics in FFE0.
-    // Some HM-10 clones split TX/RX: write on FFE1, responses on FFE2 (or vice versa).
-    // Subscribing only to FFE1 misses responses that arrive on FFE2.
-    // Fix: subscribe to EVERY char that reports notify; fall back to subscribing all.
-    const chars = await service.getCharacteristics();
-    const pStr  = c => `n:${c.properties.notify?1:0} w:${c.properties.write?1:0} wwr:${c.properties.writeWithoutResponse?1:0}`;
+    const pStr = c =>
+      `n:${+c.properties.notify} w:${+c.properties.write} wwr:${+c.properties.writeWithoutResponse} r:${+c.properties.read}`;
+
     console.log('Heater chars:', chars.map(c => `${c.uuid.slice(4,8)}[${pStr(c)}]`).join(' | '));
 
-    // Write char: first char with write or writeWithoutResponse property
+    // Write char: first with write or writeWithoutResponse
     this.writeChar = chars.find(c => c.properties.write || c.properties.writeWithoutResponse) ?? chars[0];
 
-    // Subscribe to notifications: all chars with notify/indicate (or all if none report it)
-    const notifyChars = chars.filter(c => c.properties.notify || c.properties.indicate);
-    const toSubscribe = notifyChars.length > 0 ? notifyChars : chars;
-    for (const c of toSubscribe) {
+    // ── Subscriptions ──────────────────────────────────────────────────────────
+    // Try startNotifications on EVERY characteristic.
+    // Property flags (notify/indicate) are unreliable on cheap clones — we try
+    // all of them and record the result. Failures are shown in bleInfo.
+    const subLog   = [];
+    const readChars = [];
+
+    for (const c of chars) {
+      const id = c.uuid.slice(4, 8);
       try {
         await c.startNotifications();
         c.addEventListener('characteristicvaluechanged', e => this._parse(e.target.value));
-        console.log(`Heater: subscribed to ${c.uuid.slice(4,8)}`);
+        subLog.push(`✓${id}`);
+        console.log(`Heater: subscribed notify on ${id}`);
       } catch (e) {
-        console.warn(`Heater: startNotifications failed on ${c.uuid.slice(4,8)}:`, e.message);
+        subLog.push(`✗${id}(${e.name})`);
+        console.warn(`Heater: startNotifications failed on ${id}:`, e.message);
       }
+      if (c.properties.read) readChars.push(c);
     }
 
-    const wc = this.writeChar;
-    const subList = toSubscribe.map(c => c.uuid.slice(4,8)).join('+');
-    this.data.bleInfo = `chars: ${chars.map(c => `${c.uuid.slice(4,8)}[${pStr(c)}]`).join(' ')} | write→${wc.uuid.slice(4,8)} | rx←${subList}`;
+    // ── readValue fallback ─────────────────────────────────────────────────────
+    // For modules that push data via GATT read (not notify), poll every 800ms.
+    // Only forwards a frame if the value actually changed (avoids duplicate parses).
+    if (readChars.length) {
+      this._lastReadMap = {};
+      clearInterval(this._readPoll);
+      this._readPoll = setInterval(async () => {
+        for (const c of readChars) {
+          try {
+            const dv  = await c.readValue();
+            const hex = [...new Uint8Array(dv.buffer)].map(b => b.toString(16).padStart(2, '0')).join(' ');
+            if (hex !== this._lastReadMap[c.uuid] && hex.replace(/[ 0]/g, '') !== '') {
+              this._lastReadMap[c.uuid] = hex;
+              this._parse(dv);
+            }
+          } catch { /* ignore read errors during poll */ }
+        }
+      }, 800);
+      subLog.push(`readPoll:${readChars.map(c => c.uuid.slice(4, 8)).join('+')}`);
+    }
+
+    this.data.bleInfo =
+      `chars: ${chars.map(c => `${c.uuid.slice(4,8)}[${pStr(c)}]`).join(' ')} ` +
+      `| subs: ${subLog.join(' ')} | wr→${this.writeChar?.uuid.slice(4, 8)}`;
 
     this.data.connected    = true;
     this.data.error        = null;
     this.data.lastWriteErr = null;
     this.onUpdate({ ...this.data });
 
+    await this._delay(200);
     await this._send(CMD.STATUS);
     this._startPoll();
     return true;
@@ -132,8 +147,10 @@ export class HeaterBLE {
 
   async disconnect() {
     clearInterval(this.pollTimer);
+    clearInterval(this._readPoll);
+    this._readPoll = null;
     if (this.device?.gatt?.connected) this.device.gatt.disconnect();
-    this.writeChar = null; this.notifyChar = null;
+    this.writeChar = null;
     this.data.connected = false;
     this.onUpdate({ ...this.data });
   }
@@ -187,30 +204,29 @@ export class HeaterBLE {
   async _send(cmd) {
     if (!this.writeChar) return;
     const data = new Uint8Array(cmd);
-    const hex  = [...data].map(b => b.toString(16).padStart(2,'0')).join(' ');
+    const hex  = [...data].map(b => b.toString(16).padStart(2, '0')).join(' ');
     const t    = new Date().toLocaleTimeString('it-IT', { hour12: false });
     console.log('Heater TX →', hex);
-    this.data.lastTx = hex;
-    this.data.bleLog = [{ dir: 'TX', hex, t }, ...this.data.bleLog].slice(0, 12);
+    this.data.lastTx  = hex;
+    this.data.bleLog  = [{ dir: 'TX', hex, t }, ...this.data.bleLog].slice(0, 12);
 
     const c = this.writeChar;
-    // writeValueWithResponse gives a BLE-layer ACK — we know delivery happened.
-    // Try it first; fall back to writeValueWithoutResponse (fire-and-forget).
-    // Some Chrome/macOS stacks silently swallow writeValueWithoutResponse without
-    // actually sending, so ACK-based is the reliable path when supported.
+    // writeValueWithResponse gives BLE-layer ACK → reliable delivery confirmation.
+    // Fall back to writeValueWithoutResponse (fire-and-forget).
     try {
       await c.writeValueWithResponse(data);
-      if (this.data.lastWriteErr) { this.data.lastWriteErr = null; this.onUpdate({ ...this.data }); }
+      if (this.data.lastWriteErr) { this.data.lastWriteErr = null; }
+      this.onUpdate({ ...this.data });
       return;
     } catch (e1) {
-      console.warn('Heater writeWithResponse failed:', e1.message, '— trying writeWithoutResponse');
       try {
         await c.writeValueWithoutResponse(data);
-        if (this.data.lastWriteErr) { this.data.lastWriteErr = null; this.onUpdate({ ...this.data }); }
+        if (this.data.lastWriteErr) { this.data.lastWriteErr = null; }
+        this.onUpdate({ ...this.data });
         return;
       } catch (e2) {
-        const msg = `TX failed: ${e1.message.slice(0, 50)}`;
-        console.error('Heater write both methods failed —', e1.message, '/', e2.message);
+        const msg = `TX fail: ${e1.message.slice(0, 40)}`;
+        console.error('Heater write both failed:', e1.message, '/', e2.message);
         this.data.lastWriteErr = msg;
         this.onUpdate({ ...this.data });
       }
@@ -218,15 +234,15 @@ export class HeaterBLE {
   }
 
   _parse(dv) {
-    const b = new Uint8Array(dv.buffer);
-    const rawHex = [...b].map(x => x.toString(16).padStart(2,'0')).join(' ');
+    const b      = new Uint8Array(dv.buffer);
+    const rawHex = [...b].map(x => x.toString(16).padStart(2, '0')).join(' ');
     const t      = new Date().toLocaleTimeString('it-IT', { hour12: false });
     console.log('Heater RX ←', rawHex);
     this.data.rawHex = rawHex;
     this.data.bleLog = [{ dir: 'RX', hex: rawHex, t }, ...this.data.bleLog].slice(0, 12);
 
     if (b.length >= 2 && (b[0] !== 0xAA || b[1] !== 0x55)) {
-      console.warn('Heater RX: unexpected header —', rawHex);
+      console.warn('Heater RX unexpected header:', rawHex);
       this.onUpdate({ ...this.data });
       return;
     }
@@ -244,12 +260,13 @@ export class HeaterBLE {
 
   _onDisconnect() {
     clearInterval(this.pollTimer);
-    this.writeChar = null; this.notifyChar = null;
+    clearInterval(this._readPoll);
+    this._readPoll = null;
+    this.writeChar = null;
     this.data.connected = false;
     this.onUpdate({ ...this.data });
   }
 
-  // Parse a hex string like "aa 55 01 01 00 00 00" and send it directly
   async sendHex(hexStr) {
     const bytes = (hexStr ?? '').replace(/[^0-9a-fA-F]/g, ' ').trim()
       .split(/\s+/).map(h => parseInt(h, 16)).filter(n => !isNaN(n) && n <= 255);
