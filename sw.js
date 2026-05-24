@@ -1,5 +1,5 @@
-const CACHE = 'caribu-v2';
-const ASSETS = ['/', '/styles.css', '/js/app.js', '/js/heater.js', '/js/bms.js', '/js/victron.js', '/js/imou.js', '/icons/icon.svg', '/manifest.json'];
+const CACHE = 'caribu-v3';
+const ASSETS = ['/', '/styles.css', '/js/app.js', '/js/chart.js', '/js/heater.js', '/js/bms.js', '/js/victron.js', '/js/imou.js', '/icons/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

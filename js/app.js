@@ -3,6 +3,32 @@ import { HeaterBLE, HEATER_ERROR }  from './heater.js';
 import { BMABLE }                    from './bms.js';
 import { VictronMPPT }               from './victron.js';
 import { ImouAPI }                   from './imou.js';
+import { MiniChart }                 from './chart.js';
+
+// ── Charts ────────────────────────────────────────────────────────────────────
+const chartSOC = new MiniChart({
+  maxPoints: 60,
+  height: 100,
+  yMin: 0,
+  yMax: 100,
+  yLabel: '%',
+  colorFn: (v) => v >= 50 ? '#4ADE80' : v >= 20 ? '#F59E0B' : '#F87171',
+});
+
+const chartBMSPower = new MiniChart({
+  maxPoints: 60,
+  height: 80,
+  yLabel: 'W',
+  dualColor: true,
+});
+
+const chartPVPower = new MiniChart({
+  maxPoints: 60,
+  height: 100,
+  yMin: 0,
+  yLabel: 'W',
+  colorFn: () => '#F59E0B',
+});
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const state = {
@@ -15,9 +41,33 @@ const state = {
 
 // ── Device instances ──────────────────────────────────────────────────────────
 const heater = new HeaterBLE(d => { Object.assign(state.heater, d); renderHeater(); renderDash(); updateDots(); });
-const bms    = new BMABLE   (d => { Object.assign(state.bms,    d); renderBMS();    renderDash(); updateDots(); });
-const mppt1  = new VictronMPPT('MPPT 1', d => { Object.assign(state.mppt1, d); renderVictron(); renderDash(); updateDots(); });
-const mppt2  = new VictronMPPT('MPPT 2', d => { Object.assign(state.mppt2, d); renderVictron(); renderDash(); updateDots(); });
+const bms    = new BMABLE   (d => {
+  Object.assign(state.bms, d);
+  // Push chart data
+  const socN = parseInt(state.bms.soc);
+  if (!isNaN(socN)) chartSOC.push(socN);
+  const bmsW = battWatts(state.bms.voltage, state.bms.current);
+  if (bmsW !== null) chartBMSPower.push(bmsW);
+  renderBMS();    renderDash(); updateDots();
+});
+const mppt1  = new VictronMPPT('MPPT 1', d => {
+  Object.assign(state.mppt1, d);
+  _pushPVChart();
+  renderVictron(); renderDash(); updateDots();
+});
+const mppt2  = new VictronMPPT('MPPT 2', d => {
+  Object.assign(state.mppt2, d);
+  _pushPVChart();
+  renderVictron(); renderDash(); updateDots();
+});
+
+function _pushPVChart() {
+  const w1 = parseFloat(state.mppt1.pvW) || 0;
+  const w2 = parseFloat(state.mppt2.pvW) || 0;
+  if (w1 + w2 > 0 || state.mppt1.connected || state.mppt2.connected) {
+    chartPVPower.push(w1 + w2);
+  }
+}
 const imou   = new ImouAPI  (d => { Object.assign(state.imou, d); renderImou(); updateDots(); });
 
 // ── Heater schedule ───────────────────────────────────────────────────────────
@@ -380,6 +430,16 @@ function renderBMS() {
       </div>
     </div>
 
+    <div class="card">
+      <div class="card-title">Storico SOC</div>
+      <div id="chart-soc-mount"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Potenza batteria</div>
+      <div id="chart-bms-power-mount"></div>
+    </div>
+
     <div class="grid-2">
       ${statCard('Tensione', 'var(--blue)', bs.voltage, 'V')}
       ${statCard('Corrente', cs.badge === 'green' ? 'var(--green)' : cs.badge === 'amber' ? 'var(--amber)' : 'var(--text-2)', bs.current, 'A')}
@@ -426,6 +486,8 @@ function renderBMS() {
     ${protFlags.length ? `<div class="alert alert-err">⚠️ ${protFlags.join(' · ')}</div>` : ''}
     <button class="btn btn-ghost btn-full" onclick="window.bms.disconnect();renderBMS()">Disconnetti</button>
   `;
+  chartSOC.mount('#chart-soc-mount');
+  chartBMSPower.mount('#chart-bms-power-mount');
 }
 
 // ── Victron screen ────────────────────────────────────────────────────────────
@@ -468,9 +530,17 @@ function renderVictron() {
   el('victron-body').innerHTML = `
     <div class="alert alert-warn">ℹ️ Chiave: VictronConnect → dispositivo → ⋮ → <strong>Show encryption data</strong></div>
     <div class="alert alert-warn" style="font-size:11px">Su Android potrebbe servire abilitare <strong>chrome://flags/#enable-experimental-web-platform-features</strong></div>
+    ${(state.mppt1.connected || state.mppt2.connected) ? `
+    <div class="card">
+      <div class="card-title">Potenza solare totale</div>
+      <div id="chart-pv-power-mount"></div>
+    </div>` : ''}
     ${mpptCard(state.mppt1, 1)}
     ${mpptCard(state.mppt2, 2)}
   `;
+  if (state.mppt1.connected || state.mppt2.connected) {
+    chartPVPower.mount('#chart-pv-power-mount');
+  }
 }
 
 // ── Imou screen ───────────────────────────────────────────────────────────────

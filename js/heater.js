@@ -7,14 +7,18 @@
 const HEATER_SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb';
 const HEATER_CHAR    = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
+// Two known ON/OFF variants used by different Vevor/Hcalory firmware versions.
+// CMD_A: data byte = 0x00 (original); CMD_B: data byte = 0x01 (some newer firmware).
+// turnOn()/turnOff() send both variants 300 ms apart to cover either firmware.
 const CMD = {
-  STATUS:   [0xAA, 0x55, 0x10, 0x00, 0x00, 0x00, 0x00],
-  ON:       [0xAA, 0x55, 0x01, 0x00, 0x00, 0x00, 0x00],
-  OFF:      [0xAA, 0x55, 0x02, 0x00, 0x00, 0x00, 0x00],
-  SET_TEMP: (t) => [0xAA, 0x55, 0x03, t & 0xFF, 0x00, 0x00, 0x00],
-  SET_LVL:  (l) => [0xAA, 0x55, 0x04, l & 0xFF, 0x00, 0x00, 0x00],
-  // mode: 0=manual 1=thermostat (byte matches response inverted: resp 1=manual, 2=thermostat)
-  SET_MODE: (m) => [0xAA, 0x55, 0x05, m & 0xFF, 0x00, 0x00, 0x00],
+  STATUS:    [0xAA, 0x55, 0x10, 0x00, 0x00, 0x00, 0x00],
+  ON_A:      [0xAA, 0x55, 0x01, 0x00, 0x00, 0x00, 0x00],
+  ON_B:      [0xAA, 0x55, 0x01, 0x01, 0x00, 0x00, 0x00],
+  OFF_A:     [0xAA, 0x55, 0x02, 0x00, 0x00, 0x00, 0x00],
+  OFF_B:     [0xAA, 0x55, 0x02, 0x01, 0x00, 0x00, 0x00],
+  SET_TEMP:  (t) => [0xAA, 0x55, 0x03, t & 0xFF, 0x00, 0x00, 0x00],
+  SET_LVL:   (l) => [0xAA, 0x55, 0x04, l & 0xFF, 0x00, 0x00, 0x00],
+  SET_MODE:  (m) => [0xAA, 0x55, 0x05, m & 0xFF, 0x00, 0x00, 0x00],
 };
 
 export const HEATER_STATE = {
@@ -105,19 +109,19 @@ export class HeaterBLE {
   async turnOn() {
     this.data.state = 1; // optimistic: Avvio
     this.onUpdate({ ...this.data });
-    await this._send(CMD.ON);
+    await this._send(CMD.ON_A);
     await new Promise(r => setTimeout(r, 300));
-    await this._send(CMD.ON); // send twice — some BLE-UART bridges drop the first packet
-    setTimeout(() => this._send(CMD.STATUS), 1000);
+    await this._send(CMD.ON_B);   // alternate firmware variant
+    setTimeout(() => this._send(CMD.STATUS), 1200);
   }
 
   async turnOff() {
     this.data.state = 4; // optimistic: Raffreddamento
     this.onUpdate({ ...this.data });
-    await this._send(CMD.OFF);
+    await this._send(CMD.OFF_A);
     await new Promise(r => setTimeout(r, 300));
-    await this._send(CMD.OFF);
-    setTimeout(() => this._send(CMD.STATUS), 1000);
+    await this._send(CMD.OFF_B);
+    setTimeout(() => this._send(CMD.STATUS), 1200);
   }
 
   async setTemp(t) {

@@ -231,8 +231,9 @@ export class VictronMPPT {
     this.data.cs    = CS[cs]      ?? `CS ${cs}`;
     this.data.error = ERR[errCode] ?? (errCode === 0 ? 'No error' : `Err ${errCode}`);
 
-    // battery_voltage: raw in 10 mV → dividi per 100 per ottenere volt
-    this.data.battV = battVr === NA10 ? '--' : (battVr * 0.01).toFixed(2);
+    // battery_voltage: raw in 100 mV (10-bit field, unit = 100 mV) → × 0.1 = V
+    // e.g. raw=135 → 135 × 100mV = 13.5V. NOT ×0.01 (that gave 10× too small)
+    this.data.battV = battVr === NA10 ? '--' : (battVr * 0.1).toFixed(2);
 
     // battery_current: raw in 0.1 A
     this.data.battA = (battIr & 0x7FF) === NA11 ? '--' : (battI * 0.1).toFixed(1);
