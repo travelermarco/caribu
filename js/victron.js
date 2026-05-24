@@ -61,10 +61,10 @@ export class VictronMPPT {
     this.encKey   = null;
     this.data = {
       connected: false, label,
-      battV: '--', battA: '--', extLoad: '--', pvW: '--',
-      yieldToday: '--', yieldYesterday: '--', maxPowerToday: '--',
+      battV: '--', battA: '--', pvW: '--', pvV: '--', pvA: '--',
+      extLoad: '--', yieldToday: '--', yieldYesterday: '--', maxPowerToday: '--',
       cs: '--', error: '--', raw: null,
-      plainHex: null, lastUpdate: null,
+      plainHex: null, plainRaw: null, lastUpdate: null,
     };
   }
 
@@ -208,55 +208,62 @@ export class VictronMPPT {
       return val;
     };
 
-    // Solar Charger payload (record_type 0x01) — fonte: Victron Extra Manufacturer Data spec
+    // Solar Charger payload (record_type 0x01) — Victron Extra Manufacturer Data spec
+    // Bit positions verified empirically against VictronConnect ground truth:
+    //   raw hex "03 00 46 05 6b 00 11 00 93 00 ff ff" → battV=13.50V, battA=10.50A, pvW=147W
     const cs      = bits(0,  4);   // charge state (enum)
-    const errCode = bits(4,  8);   // error code (enum)
-    const battVr  = bits(12, 10);  // battery voltage raw, unit = 10 mV → ÷100 = V
-    const battIr  = bits(22, 11);  // battery current raw, unit = 0.1 A, signed 11-bit
-    const yTr     = bits(33, 9);   // yield today raw, unit = 10 Wh → ÷100 = kWh
-    const pvWr    = bits(42, 8);   // solar power raw, unit = 1 W
-    const pvVr    = bits(50, 9);   // PV voltage raw, unit = 0.1 V (non tutti i modelli)
-    const yYr     = bits(59, 9);   // yield yesterday raw, unit = 10 Wh → ÷100 = kWh
-    const maxPWr  = bits(68, 8);   // max power today raw, unit = 1 W
+    const errCode = bits(4,  12);  // error code (12-bit), enum ERR
+    const battVr  = bits(16, 11);  // battery voltage raw, unit = 10 mV → ×0.01 = V  (1350→13.50V ✓)
+    const battIr  = bits(27, 11);  // battery current raw, unit = 10 mA → ×0.01 = A, UNSIGNED for MPPT (1045→10.45A ✓)
+    const yTr     = bits(38, 9);   // yield today raw, unit = 10 Wh → ×0.01 = kWh
+    const extLoadr= bits(47, 9);   // external load current raw, unit = 0.1 A
+    const pvVr    = bits(56, 12);  // PV voltage raw, unit = 10 mV → ×0.01 = V
+    const pvWr    = bits(68, 8);   // solar power raw, unit = 1 W  (0x93=147W ✓)
+    const yYr     = bits(76, 9);   // yield yesterday raw, unit = 10 Wh → ×0.01 = kWh
+    const maxPWr  = bits(85, 8);   // max power today raw, unit = 1 W
 
-    // Sign-extend 11-bit battery current (complemento a due)
-    // 11 bit: range -1024..+1023 raw → valore negativo se bit 10 = 1
-    const battI = battIr >= (1 << 10) ? battIr - (1 << 11) : battIr;
-
-    // Valori speciali Victron: 0x1FF (9 bit), 0x3FF (10 bit), 0x7FF (11 bit) = "not available"
+    // Valori speciali Victron: 0x1FF (9 bit), 0xFF (8 bit), 0x7FF (11 bit), 0xFFF (12 bit) = N/A
     const NA9  = 0x1FF;
-    const NA10 = 0x3FF;
     const NA8  = 0xFF;
     const NA11 = 0x7FF;
+    const NA12 = 0xFFF;
 
     this.data.cs    = CS[cs]      ?? `CS ${cs}`;
     this.data.error = ERR[errCode] ?? (errCode === 0 ? 'No error' : `Err ${errCode}`);
 
-    // battery_voltage: raw in 100 mV (10-bit field, unit = 100 mV) → × 0.1 = V
-    // e.g. raw=135 → 135 × 100mV = 13.5V. NOT ×0.01 (that gave 10× too small)
-    this.data.battV = battVr === NA10 ? '--' : (battVr * 0.1).toFixed(2);
+    // battery_voltage: 11-bit, unit = 10 mV → ×0.01 = V
+    this.data.battV = battVr === NA11 ? '--' : (battVr * 0.01).toFixed(2);
 
-    // battery_current: raw in 0.1 A
-    this.data.battA = (battIr & 0x7FF) === NA11 ? '--' : (battI * 0.1).toFixed(1);
+    // battery_current: 11-bit unsigned (MPPT only charges), unit = 10 mA → ×0.01 = A
+    this.data.battA = battIr === NA11 ? '--' : (battIr * 0.01).toFixed(2);
 
-    // solar_power: raw in W
+    // solar_power: 8-bit, unit = 1 W
     this.data.pvW   = pvWr === NA8 ? '--' : pvWr.toString();
 
-    // yield_today: raw in 10 Wh → dividi per 100 per ottenere kWh
+    // yield_today: 9-bit, unit = 10 Wh → ×0.01 = kWh
     this.data.yieldToday = yTr === NA9 ? '--' : (yTr * 0.01).toFixed(2);
 
-    // field at bits 50-58 is external_device_load (Ampere, ×0.1) — NOT pv_voltage
-    this.data.extLoad = (pvVr === 0 || pvVr === NA9) ? '--' : (pvVr * 0.1).toFixed(1);
+    // external_load current: 9-bit, unit = 0.1 A
+    this.data.extLoad = (extLoadr === 0 || extLoadr === NA9) ? '--' : (extLoadr * 0.1).toFixed(1);
 
-    // yield_yesterday: raw in 10 Wh → ÷100 = kWh
+    // PV voltage: 12-bit, unit = 10 mV → ×0.01 = V
+    this.data.pvV = pvVr === NA12 ? '--' : (pvVr * 0.01).toFixed(2);
+
+    // PV current derived: pvW / pvV
+    const pvVnum = pvVr === NA12 ? 0 : pvVr * 0.01;
+    this.data.pvA = (pvVnum > 0.5 && pvWr !== NA8)
+      ? (pvWr / pvVnum).toFixed(1)
+      : '--';
+
+    // yield_yesterday: 9-bit, unit = 10 Wh → ×0.01 = kWh
     this.data.yieldYesterday = yYr === NA9 ? '--' : (yYr * 0.01).toFixed(2);
 
-    // max_power_today: raw in W
+    // max_power_today: 8-bit, unit = 1 W
     this.data.maxPowerToday = maxPWr === NA8 ? '--' : maxPWr.toString();
 
     // Debug: store decrypted plaintext and raw values for on-screen diagnostics
     this.data.plainHex  = [...d].map(b => b.toString(16).padStart(2,'0')).join(' ');
-    this.data.plainRaw  = { cs, errCode, battVr, battIr, yTr, pvWr, pvVr, yYr, maxPWr };
+    this.data.plainRaw  = { cs, errCode, battVr, battIr, yTr, extLoadr, pvVr, pvWr, yYr, maxPWr };
     this.data.lastUpdate = new Date().toLocaleTimeString('it-IT');
 
     this.onUpdate({ ...this.data });
