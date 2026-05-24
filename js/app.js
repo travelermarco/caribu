@@ -34,8 +34,8 @@ const chartPVPower = new MiniChart({
 const state = {
   heater: { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1, errorCode:0, mode:1 },
   bms:    { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0, fetCharge:true, fetDischarge:true, balance:0, cellCount:0 },
-  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', pvW:'--', pvV:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--' },
-  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', pvW:'--', pvV:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--' },
+  mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', pvW:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
+  mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', pvW:'--', extLoad:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
   imou:   { connected:false, devices:[], error:null },
 };
 
@@ -503,16 +503,23 @@ function renderVictron() {
       ${m.connected ? `
       <div class="grid-2" style="margin-bottom:10px">
         ${statCard('Potenza PV', 'var(--amber)', m.pvW, 'W')}
-        ${statCard('Tensione PV', 'var(--blue)', m.pvV, 'V')}
         ${statCard('Batt. V', 'var(--green)', m.battV, 'V')}
         ${statCard('Batt. A', 'var(--text)', m.battA, 'A')}
+        ${statCard('Carico est.', 'var(--text-2)', m.extLoad, 'A')}
       </div>
       <div class="divider"></div>
       <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Stato</span><span style="font-size:12px">${m.cs}</span></div>
       <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px">${m.error}</span></div>
-      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Resa oggi</span><span style="font-size:12px;color:var(--amber)">${m.yieldToday} kWh</span></div>
-      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Resa ieri</span><span style="font-size:12px;color:var(--text)">${m.yieldYesterday} kWh</span></div>
-      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Max potenza oggi</span><span style="font-size:12px;color:var(--text)">${m.maxPowerToday} W</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Resa oggi</span><span style="font-size:12px;color:var(--amber);font-weight:700">${m.yieldToday} kWh</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Resa ieri</span><span style="font-size:12px;font-weight:700">${m.yieldYesterday} kWh</span></div>
+      <div class="card-row"><span style="font-size:12px;color:var(--text-2)">Max oggi</span><span style="font-size:12px">${m.maxPowerToday} W</span></div>
+      ${m.lastUpdate ? `<div style="font-size:10px;color:var(--text-2);margin-top:4px">Aggiornato: ${m.lastUpdate}</div>` : ''}
+      ${m.plainHex ? `
+      <div style="background:var(--bg);border-radius:8px;padding:8px;margin-top:8px;font-size:10px;font-family:monospace;color:var(--text-2);word-break:break-all">
+        <div style="color:var(--amber);margin-bottom:2px">RAW DECRYPT (mandami questo!):</div>
+        ${m.plainHex}
+        <div style="margin-top:4px">battVr=${m.plainRaw?.battVr} battIr=${m.plainRaw?.battIr} pvWr=${m.plainRaw?.pvWr} pvVr=${m.plainRaw?.pvVr}</div>
+      </div>` : ''}
       <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="(${idx===1?'window.mppt1':'window.mppt2'}).disconnect();renderVictron()">Disconnetti</button>
       ` : `
       <button class="btn btn-primary btn-full" onclick="connectMPPT(${idx})">Connetti</button>

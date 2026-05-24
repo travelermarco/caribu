@@ -208,9 +208,13 @@ export class MiniChart {
       max = Math.max(max, 0);
     }
 
-    if (min === max) { min -= 1; max += 1; }
+    if (min === max) {
+      min = this.fixedMin !== null ? this.fixedMin : min - 1;
+      max = this.fixedMax !== null ? this.fixedMax : max + 1;
+      if (min === max) { min -= 1; max += 1; }
+    }
 
-    // Add 8% padding
+    // Add 8% padding (only on dynamic sides)
     const pad = (max - min) * 0.08;
     if (this.fixedMin === null) min -= pad;
     if (this.fixedMax === null) max += pad;

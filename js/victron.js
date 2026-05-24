@@ -61,9 +61,10 @@ export class VictronMPPT {
     this.encKey   = null;
     this.data = {
       connected: false, label,
-      battV: '--', battA: '--', pvV: '--', pvW: '--',
+      battV: '--', battA: '--', extLoad: '--', pvW: '--',
       yieldToday: '--', yieldYesterday: '--', maxPowerToday: '--',
       cs: '--', error: '--', raw: null,
+      plainHex: null, lastUpdate: null,
     };
   }
 
@@ -244,14 +245,19 @@ export class VictronMPPT {
     // yield_today: raw in 10 Wh → dividi per 100 per ottenere kWh
     this.data.yieldToday = yTr === NA9 ? '--' : (yTr * 0.01).toFixed(2);
 
-    // pv_voltage: raw in 0.1 V (campo opzionale)
-    this.data.pvV = (pvVr === 0 || pvVr === NA9) ? '--' : (pvVr * 0.1).toFixed(1);
+    // field at bits 50-58 is external_device_load (Ampere, ×0.1) — NOT pv_voltage
+    this.data.extLoad = (pvVr === 0 || pvVr === NA9) ? '--' : (pvVr * 0.1).toFixed(1);
 
     // yield_yesterday: raw in 10 Wh → ÷100 = kWh
     this.data.yieldYesterday = yYr === NA9 ? '--' : (yYr * 0.01).toFixed(2);
 
     // max_power_today: raw in W
     this.data.maxPowerToday = maxPWr === NA8 ? '--' : maxPWr.toString();
+
+    // Debug: store decrypted plaintext and raw values for on-screen diagnostics
+    this.data.plainHex  = [...d].map(b => b.toString(16).padStart(2,'0')).join(' ');
+    this.data.plainRaw  = { cs, errCode, battVr, battIr, yTr, pvWr, pvVr, yYr, maxPWr };
+    this.data.lastUpdate = new Date().toLocaleTimeString('it-IT');
 
     this.onUpdate({ ...this.data });
   }
