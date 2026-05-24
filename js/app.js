@@ -32,7 +32,7 @@ const chartPVPower = new MiniChart({
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const state = {
-  heater: { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1, errorCode:0, mode:1, rawHex:null },
+  heater: { connected:false, state:0, currentTemp:'--', targetTemp:20, voltage:'--', power:1, errorCode:0, mode:1, rawHex:null, lastTx:null, lastWriteErr:null },
   bms:    { connected:false, soc:'--', voltage:'--', current:'--', remaining:'--', capacity:'--', cycles:'--', temps:[], cells:[], protect:0, fetCharge:true, fetDischarge:true, balance:0, cellCount:0 },
   mppt1:  { connected:false, label:'MPPT 1', battV:'--', battA:'--', battW:'--', pvW:'--', pvV:'--', pvA:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', csNum:-1, isCharging:false, error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
   mppt2:  { connected:false, label:'MPPT 2', battV:'--', battA:'--', battW:'--', pvW:'--', pvV:'--', pvA:'--', yieldToday:'--', yieldYesterday:'--', maxPowerToday:'--', cs:'--', csNum:-1, isCharging:false, error:'--', plainHex:null, plainRaw:null, lastUpdate:null },
@@ -40,7 +40,12 @@ const state = {
 };
 
 // ── Device instances ──────────────────────────────────────────────────────────
-const heater = new HeaterBLE(d => { Object.assign(state.heater, d); renderHeater(); renderDash(); updateDots(); });
+const heater = new HeaterBLE(d => {
+  const prevErr = state.heater.lastWriteErr;
+  Object.assign(state.heater, d);
+  if (d.lastWriteErr && d.lastWriteErr !== prevErr) toast('⚠ Heater: ' + d.lastWriteErr);
+  renderHeater(); renderDash(); updateDots();
+});
 const bms    = new BMABLE   (d => {
   Object.assign(state.bms, d);
   // Push chart data
@@ -355,7 +360,9 @@ function renderHeater() {
       <div class="settings-row"><label>Tensione batteria</label><span style="color:var(--amber)">${hs.voltage} V</span></div>
       <div class="settings-row"><label>Modalità attiva</label><span>${modeLabel}</span></div>
       ${errLabel ? `<div class="settings-row"><label>Errore</label><span style="color:var(--red)">${errLabel}</span></div>` : ''}
-      ${hs.rawHex ? `<div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px"><label>RAW RX (debug)</label><span style="font-size:11px;font-family:monospace;color:var(--text-2);word-break:break-all">${hs.rawHex}</span></div>` : ''}
+      ${hs.lastTx   ? `<div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px"><label>Ultimo TX</label><span style="font-size:11px;font-family:monospace;color:var(--blue);word-break:break-all">${hs.lastTx}</span></div>` : ''}
+      ${hs.rawHex   ? `<div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:4px"><label>Ultimo RX</label><span style="font-size:11px;font-family:monospace;color:var(--text-2);word-break:break-all">${hs.rawHex}</span></div>` : ''}
+      ${hs.lastWriteErr ? `<div class="settings-row"><label>Errore TX</label><span style="color:var(--red);font-size:12px">${hs.lastWriteErr}</span></div>` : ''}
       <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window.heater.disconnect();renderHeater()">Disconnetti</button>
     </div>
   `;

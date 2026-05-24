@@ -2,13 +2,14 @@
 // ── Diesel Heater BLE (Vevor / Hcalory / generic Chinese UART-over-BLE) ────
 // Service:        0000ffe0-0000-1000-8000-00805f9b34fb
 // Characteristic: 0000ffe1-0000-1000-8000-00805f9b34fb (notify + write)
-//   Some HM-10 clones split Tx/Rx: FFE1=notify, FFE2=write.
-//   _connectDevice() enumerates all chars and picks the right ones.
+//   Split-char clones: FFE1=notify, FFE2=write — _connectDevice handles both.
 //
-// Protocol: 7-byte command frames [0xAA, 0x55, cmd, data, 0x00, 0x00, 0x00]
-//           Response: ≥3 bytes, typically [0xAA, 0x55, state, targetT, currentT, volt×10, power, ...]
+// Protocol: 7-byte frames [0xAA, 0x55, cmd, data, 0x00, 0x00, 0x00]
+// Response: [0xAA, 0x55, state, targetT, currentT, volt×10, power, errorCode?, mode?]
 
 const HEATER_SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb';
+const FFE1 = '0000ffe1-0000-1000-8000-00805f9b34fb';
+const FFE2 = '0000ffe2-0000-1000-8000-00805f9b34fb';
 
 const CMD = {
   STATUS:   [0xAA, 0x55, 0x10, 0x00, 0x00, 0x00, 0x00],
@@ -48,14 +49,14 @@ export class HeaterBLE {
     this.pollTimer  = null;
     this.data = {
       connected: false, state: 0, currentTemp: '--', targetTemp: 20,
-      voltage: '--', power: 1, errorCode: 0, mode: 1, error: null, rawHex: null,
+      voltage: '--', power: 1, errorCode: 0, mode: 1,
+      error: null, rawHex: null, lastTx: null, lastWriteErr: null,
     };
   }
 
   async connect() {
     if (!navigator.bluetooth) {
-      const msg = 'Web Bluetooth non supportato. Usa Chrome su Android/Desktop via HTTPS.';
-      this.data.error = msg;
+      this.data.error = 'Web Bluetooth non supportato. Usa Chrome su Android/Desktop via HTTPS.';
       this.onUpdate({ ...this.data });
       return false;
     }
@@ -77,12 +78,8 @@ export class HeaterBLE {
 
   async reconnect(device) {
     this.device = device;
-    try {
-      return await this._connectDevice();
-    } catch (e) {
-      console.warn('Heater auto-reconnect failed:', e);
-      return false;
-    }
+    try { return await this._connectDevice(); }
+    catch (e) { console.warn('Heater auto-reconnect failed:', e); return false; }
   }
 
   async _connectDevice() {
@@ -90,40 +87,30 @@ export class HeaterBLE {
     const server  = await this.device.gatt.connect();
     const service = await server.getPrimaryService(HEATER_SERVICE);
 
-    // Enumerate all characteristics — some HM-10 clones split notify (FFE1) and write (FFE2)
-    const chars = await service.getCharacteristics();
-    console.log('Heater characteristics:',
-      chars.map(c => `${c.uuid.slice(4,8)} [n:${c.properties.notify} w:${c.properties.write} wwr:${c.properties.writeWithoutResponse}]`).join(' | ')
-    );
+    // FFE1 is the standard UART char — notify + write on genuine HM-10.
+    // Some clones split it: FFE1=notify-only, FFE2=write-only.
+    this.notifyChar = await service.getCharacteristic(FFE1);
+    this.writeChar  = this.notifyChar;
 
-    let notifyChar = null;
-    let writeChar  = null;
-
-    for (const c of chars) {
-      if ((c.properties.notify || c.properties.indicate) && !notifyChar) notifyChar = c;
-      if ((c.properties.write || c.properties.writeWithoutResponse) && !writeChar)  writeChar  = c;
+    if (!this.notifyChar.properties.write && !this.notifyChar.properties.writeWithoutResponse) {
+      try {
+        this.writeChar = await service.getCharacteristic(FFE2);
+        console.log('Heater: split-char mode — FFE1 notify, FFE2 write');
+      } catch { /* no FFE2; will write to FFE1 anyway and see what happens */ }
     }
 
-    // Fallback: if nothing matched (e.g. properties not exposed), use first char for both
-    if (!notifyChar && !writeChar && chars.length > 0) { notifyChar = chars[0]; writeChar = chars[0]; }
-    if (!notifyChar) notifyChar = writeChar;
-    if (!writeChar)  writeChar  = notifyChar;
+    const nc = this.notifyChar, wc = this.writeChar;
+    console.log(`Heater notifyChar ${nc.uuid.slice(4,8)}: n=${nc.properties.notify} w=${nc.properties.write} wwr=${nc.properties.writeWithoutResponse}`);
+    console.log(`Heater writeChar  ${wc.uuid.slice(4,8)}: n=${wc.properties.notify} w=${wc.properties.write} wwr=${wc.properties.writeWithoutResponse}`);
 
-    if (!notifyChar) throw new Error('Nessuna caratteristica trovata nel servizio FFE0');
-
-    console.log(`Heater: notifyChar=${notifyChar.uuid.slice(4,8)} writeChar=${writeChar.uuid.slice(4,8)}`);
-
-    this.notifyChar = notifyChar;
-    this.writeChar  = writeChar;
-
-    await notifyChar.startNotifications();
-    notifyChar.addEventListener('characteristicvaluechanged', e => this._parse(e.target.value));
+    await this.notifyChar.startNotifications();
+    this.notifyChar.addEventListener('characteristicvaluechanged', e => this._parse(e.target.value));
 
     this.data.connected = true;
     this.data.error = null;
+    this.data.lastWriteErr = null;
     this.onUpdate({ ...this.data });
 
-    // Initial status request, then slow poll
     await this._send(CMD.STATUS);
     this._startPoll();
     return true;
@@ -132,8 +119,7 @@ export class HeaterBLE {
   async disconnect() {
     clearInterval(this.pollTimer);
     if (this.device?.gatt?.connected) this.device.gatt.disconnect();
-    this.writeChar  = null;
-    this.notifyChar = null;
+    this.writeChar = null; this.notifyChar = null;
     this.data.connected = false;
     this.onUpdate({ ...this.data });
   }
@@ -185,25 +171,36 @@ export class HeaterBLE {
     this.pollTimer = setInterval(() => this._send(CMD.STATUS), 5000);
   }
 
-  _scheduleStatus(ms) {
-    setTimeout(() => this._send(CMD.STATUS), ms);
-  }
-
-  _delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+  _scheduleStatus(ms) { setTimeout(() => this._send(CMD.STATUS), ms); }
+  _delay(ms)          { return new Promise(r => setTimeout(r, ms)); }
 
   async _send(cmd) {
     if (!this.writeChar) return;
     const data = new Uint8Array(cmd);
-    console.log('Heater TX →', [...data].map(b => b.toString(16).padStart(2,'0')).join(' '));
-    // Always try writeValueWithoutResponse first (standard for HM-10 BLE-UART)
-    // then fall back to writeValueWithResponse — property flags are unreliable on clones
+    const hex  = [...data].map(b => b.toString(16).padStart(2,'0')).join(' ');
+    console.log('Heater TX →', hex);
+    this.data.lastTx = hex;
+
+    const c = this.writeChar;
+    // writeValueWithResponse gives a BLE-layer ACK — we know delivery happened.
+    // Try it first; fall back to writeValueWithoutResponse (fire-and-forget).
+    // Some Chrome/macOS stacks silently swallow writeValueWithoutResponse without
+    // actually sending, so ACK-based is the reliable path when supported.
     try {
-      await this.writeChar.writeValueWithoutResponse(data);
+      await c.writeValueWithResponse(data);
+      if (this.data.lastWriteErr) { this.data.lastWriteErr = null; this.onUpdate({ ...this.data }); }
+      return;
     } catch (e1) {
+      console.warn('Heater writeWithResponse failed:', e1.message, '— trying writeWithoutResponse');
       try {
-        await this.writeChar.writeValueWithResponse(data);
+        await c.writeValueWithoutResponse(data);
+        if (this.data.lastWriteErr) { this.data.lastWriteErr = null; this.onUpdate({ ...this.data }); }
+        return;
       } catch (e2) {
-        console.error('Heater write failed (wwr:', e1.message, '/ wr:', e2.message + ')');
+        const msg = `TX failed: ${e1.message.slice(0, 50)}`;
+        console.error('Heater write both methods failed —', e1.message, '/', e2.message);
+        this.data.lastWriteErr = msg;
+        this.onUpdate({ ...this.data });
       }
     }
   }
@@ -214,9 +211,8 @@ export class HeaterBLE {
     console.log('Heater RX ←', rawHex);
     this.data.rawHex = rawHex;
 
-    // Validate header [0xAA, 0x55] if we have at least 2 bytes
     if (b.length >= 2 && (b[0] !== 0xAA || b[1] !== 0x55)) {
-      console.warn('Heater RX: unexpected header', rawHex);
+      console.warn('Heater RX: unexpected header —', rawHex);
       this.onUpdate({ ...this.data });
       return;
     }
@@ -234,8 +230,7 @@ export class HeaterBLE {
 
   _onDisconnect() {
     clearInterval(this.pollTimer);
-    this.writeChar  = null;
-    this.notifyChar = null;
+    this.writeChar = null; this.notifyChar = null;
     this.data.connected = false;
     this.onUpdate({ ...this.data });
   }
