@@ -11,12 +11,15 @@ const HEATER_SERVICE = '0000ffe0-0000-1000-8000-00805f9b34fb';
 const FFE1 = '0000ffe1-0000-1000-8000-00805f9b34fb';
 const FFE2 = '0000ffe2-0000-1000-8000-00805f9b34fb';
 
+// cmd=0x01, data=0x01 → power ON
+// cmd=0x01, data=0x00 → power OFF
+// Same command byte, different data — verified across Vevor/Hcalory/generic firmwares.
+// The old approach (ON_A=01 00, ON_B=01 01, OFF=02 xx) was wrong: 0x02 is undefined
+// and 01 00 is OFF, so turnOn() was sending OFF then ON and turnOff() did nothing.
 const CMD = {
+  ON:       [0xAA, 0x55, 0x01, 0x01, 0x00, 0x00, 0x00],
+  OFF:      [0xAA, 0x55, 0x01, 0x00, 0x00, 0x00, 0x00],
   STATUS:   [0xAA, 0x55, 0x10, 0x00, 0x00, 0x00, 0x00],
-  ON_A:     [0xAA, 0x55, 0x01, 0x00, 0x00, 0x00, 0x00],
-  ON_B:     [0xAA, 0x55, 0x01, 0x01, 0x00, 0x00, 0x00],
-  OFF_A:    [0xAA, 0x55, 0x02, 0x00, 0x00, 0x00, 0x00],
-  OFF_B:    [0xAA, 0x55, 0x02, 0x01, 0x00, 0x00, 0x00],
   SET_TEMP: (t) => [0xAA, 0x55, 0x03, t & 0xFF, 0x00, 0x00, 0x00],
   SET_LVL:  (l) => [0xAA, 0x55, 0x04, l & 0xFF, 0x00, 0x00, 0x00],
   SET_MODE: (m) => [0xAA, 0x55, 0x05, m & 0xFF, 0x00, 0x00, 0x00],
@@ -127,19 +130,15 @@ export class HeaterBLE {
   async turnOn() {
     this.data.state = 1;
     this.onUpdate({ ...this.data });
-    await this._send(CMD.ON_A);
-    await this._delay(300);
-    await this._send(CMD.ON_B);
-    this._scheduleStatus(1500);
+    await this._send(CMD.ON);
+    this._scheduleStatus(2000);
   }
 
   async turnOff() {
     this.data.state = 4;
     this.onUpdate({ ...this.data });
-    await this._send(CMD.OFF_A);
-    await this._delay(300);
-    await this._send(CMD.OFF_B);
-    this._scheduleStatus(1500);
+    await this._send(CMD.OFF);
+    this._scheduleStatus(2000);
   }
 
   async setTemp(t) {

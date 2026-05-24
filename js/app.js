@@ -324,8 +324,8 @@ function renderHeater() {
 
     <div class="card">
       <div class="card-title">Accensione</div>
-      <button class="power-btn ${heaterOn ? 'on' : ''}" onclick="toggleHeater()">⏻</button>
-      <div style="text-align:center;font-size:12px;color:var(--text-2);margin-top:4px">${heaterOn ? 'Tocca per spegnere' : 'Tocca per accendere'}</div>
+      <button class="power-btn ${heaterOn ? 'on' : ''}" onclick="toggleHeater()" ${_heaterBusy ? 'disabled style="opacity:.45;cursor:default"' : ''}>⏻</button>
+      <div style="text-align:center;font-size:12px;color:var(--text-2);margin-top:4px">${_heaterBusy ? 'Comando inviato…' : heaterOn ? 'Tocca per spegnere' : 'Tocca per accendere'}</div>
     </div>
 
     <div class="card">
@@ -695,7 +695,11 @@ window.connectMPPT = async (i) => {
   if (!ok) updateDots();
 };
 
+let _heaterBusy = false;
 window.toggleHeater = async () => {
+  if (_heaterBusy) return;
+  _heaterBusy = true;
+  setTimeout(() => { _heaterBusy = false; renderHeater(); }, 4000);
   const on = state.heater.state === 1 || state.heater.state === 2;
   on ? await heater.turnOff() : await heater.turnOn();
 };

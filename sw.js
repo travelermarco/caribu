@@ -1,4 +1,4 @@
-const CACHE = 'caribu-v7';
+const CACHE = 'caribu-v8';
 const ASSETS = ['/', '/styles.css', '/js/app.js', '/js/chart.js', '/js/heater.js', '/js/bms.js', '/js/victron.js', '/js/imou.js', '/icons/icon.svg', '/manifest.json'];
 
 self.addEventListener('install', e => {
