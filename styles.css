@@ -360,3 +360,39 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 ::-webkit-scrollbar { width: 3px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+/* ── Tab bar scrollabile per 8+ tab ──────────────────────────────────────── */
+.tab-bar { overflow-x: auto; scrollbar-width: none; justify-content: flex-start; }
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-btn { min-width: 58px; flex: 0 0 auto; }
+
+/* ── Energy flow ──────────────────────────────────────────────────────────── */
+.energy-flow { display: flex; align-items: center; justify-content: space-around; padding: 8px 0; }
+.energy-node { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.energy-icon { font-size: 24px; line-height: 1; }
+.energy-val  { font-size: 22px; font-weight: 800; line-height: 1; }
+.energy-unit { font-size: 11px; font-weight: 500; color: var(--text-2); margin-left: 1px; }
+.energy-lbl  { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .4px; }
+.energy-arrow { font-size: 20px; color: var(--border); }
+
+/* ── Hist chart ───────────────────────────────────────────────────────────── */
+.hist-empty { text-align: center; padding: 16px; font-size: 12px; color: var(--text-2); }
+
+/* ── Weather ──────────────────────────────────────────────────────────────── */
+.weather-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.weather-day { background: rgba(17,22,32,.7); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 10px; text-align: center; }
+.weather-day-name { font-size: 10px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--text-2); margin-bottom: 8px; }
+.weather-emoji { font-size: 32px; line-height: 1; margin-bottom: 6px; }
+.weather-temps { font-size: 14px; font-weight: 700; }
+.weather-temps .lo { color: var(--text-2); font-weight: 500; }
+.weather-desc { font-size: 10px; color: var(--text-2); margin-top: 5px; line-height: 1.3; }
+.weather-rain { font-size: 11px; color: var(--blue); margin-top: 3px; }
+
+/* ── Campeggi ─────────────────────────────────────────────────────────────── */
+.camp-card { background: rgba(17,22,32,.7); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+.camp-card.camp-active { border-color: rgba(74,222,128,.35); box-shadow: 0 0 0 1px rgba(74,222,128,.1); }
+.camp-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.camp-location { font-size: 14px; font-weight: 700; margin-bottom: 3px; }
+.camp-date { font-size: 12px; color: var(--text-2); }
+.camp-notes { width: 100%; margin-top: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 12px; resize: vertical; min-height: 40px; outline: none; font-family: inherit; }
+.camp-notes:focus { border-color: rgba(245,158,11,.4); }

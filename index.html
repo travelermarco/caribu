@@ -9,6 +9,7 @@
   <title>Caribù</title>
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icons/icon.svg">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -44,6 +45,22 @@
         <div class="stat-label">📷 Camere</div>
         <div id="dash-imou"></div>
       </div>
+    </div>
+
+    <!-- Bilancio energetico -->
+    <div class="card" id="energy-balance-card" style="display:none">
+      <div class="card-title">⚡ Bilancio energetico</div>
+      <div id="energy-balance-body"></div>
+    </div>
+
+    <!-- Grafici 24h -->
+    <div class="card">
+      <div class="card-title">📊 Ultime 24h</div>
+      <div id="hist-soc-container" style="margin-bottom:8px"></div>
+      <div class="divider"></div>
+      <div id="hist-pv-container" style="margin-bottom:8px"></div>
+      <div class="divider"></div>
+      <div id="hist-batt-container"></div>
     </div>
 
     <div class="card" style="margin-top:4px">
@@ -84,6 +101,20 @@
     <div id="settings-body"></div>
   </section>
 
+  <!-- ── Meteo ────────────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-meteo">
+    <div id="meteo-body"></div>
+  </section>
+
+  <!-- ── Campeggi ─────────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-campeggi">
+    <div id="campeggi-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <span style="font-size:13px;color:var(--text-2)">Rilevamento automatico quando fermo 10+ min</span>
+      <button class="btn btn-ghost" style="padding:6px 12px;font-size:12px" onclick="window.refreshCampeggi()">🔄</button>
+    </div>
+    <div id="campeggi-body"></div>
+  </section>
+
   <!-- Tab bar -->
   <nav class="tab-bar">
     <button class="tab-btn active" data-tab="dash">
@@ -109,6 +140,14 @@
     <button class="tab-btn" data-tab="settings">
       <span class="tab-icon">⚙️</span>
       <span>Config</span>
+    </button>
+    <button class="tab-btn" data-tab="meteo">
+      <span class="tab-icon">🌤</span>
+      <span>Meteo</span>
+    </button>
+    <button class="tab-btn" data-tab="campeggi">
+      <span class="tab-icon">📍</span>
+      <span>Campeggi</span>
     </button>
   </nav>
 

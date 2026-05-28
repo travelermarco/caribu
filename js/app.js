@@ -4,6 +4,10 @@ import { BMABLE }                    from './bms.js';
 import { VictronMPPT }               from './victron.js';
 import { ImouAPI }                   from './imou.js';
 import { MiniChart }                 from './chart.js';
+import { pushSnapshot, drawHistChart } from './history.js';
+import { renderWeather }               from './weather.js';
+import { startTracking, renderCampsites, deleteCampsite, updateNotes } from './campsites.js';
+import { checkThresholds, requestPermission, renderNotifSettings, getThresholds, saveThresholds } from './notifications.js';
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 const chartSOC = new MiniChart({
@@ -54,16 +58,29 @@ const bms    = new BMABLE   (d => {
   const bmsW = battWatts(state.bms.voltage, state.bms.current);
   if (bmsW !== null) chartBMSPower.push(bmsW);
   renderBMS();    renderDash(); updateDots();
+  // History snapshot + thresholds + charts
+  const snap = {
+    soc:   parseInt(state.bms.soc) || null,
+    battW: battWatts(state.bms.voltage, state.bms.current),
+    pvW:   (parseFloat(state.mppt1.pvW) || 0) + (parseFloat(state.mppt2.pvW) || 0),
+    temp:  parseFloat(state.heater.currentTemp) || null,
+  };
+  pushSnapshot(snap);
+  checkThresholds(state);
+  renderHistCharts();
+  renderEnergy();
 });
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
   _pushPVChart();
   renderVictron(); renderDash(); updateDots();
+  renderEnergy();
 });
 const mppt2  = new VictronMPPT('MPPT 2', d => {
   Object.assign(state.mppt2, d);
   _pushPVChart();
   renderVictron(); renderDash(); updateDots();
+  renderEnergy();
 });
 
 function _pushPVChart() {
@@ -165,6 +182,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     const t = btn.dataset.tab;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === `screen-${t}`));
+    if (t === 'meteo')    renderMeteo();
+    if (t === 'campeggi') renderCampeggi();
   });
 });
 
@@ -670,8 +689,84 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">Reset connessioni</div>
       <button class="btn btn-danger btn-full" onclick="disconnectAll()">Disconnetti tutto</button>
+    </div>
+    <div class="card">
+      <div class="card-title">🔔 Notifiche</div>
+      <div id="notif-settings-body"></div>
     </div>`;
+  renderNotifSettings('notif-settings-body');
 }
+
+// ── Energy balance ────────────────────────────────────────────────────────────
+function renderEnergy() {
+  const solarW = (parseFloat(state.mppt1.pvW) || 0) + (parseFloat(state.mppt2.pvW) || 0);
+  const battW  = battWatts(state.bms.voltage, state.bms.current) ?? 0;
+  const loadW  = Math.max(0, solarW - battW);
+  const card   = el('energy-balance-card');
+  const body   = el('energy-balance-body');
+  if (!card || !body) return;
+  const hasData = (state.mppt1.connected || state.mppt2.connected) || state.bms.connected;
+  card.style.display = hasData ? '' : 'none';
+  if (!hasData) return;
+  const battColor = battW >= 0 ? 'var(--green)' : 'var(--amber)';
+  const battLabel = battW >= 0 ? '↑ carica' : '↓ scarica';
+  body.innerHTML = `
+    <div class="energy-flow">
+      <div class="energy-node">
+        <div class="energy-icon">☀️</div>
+        <div class="energy-val" style="color:var(--amber)">${solarW.toFixed(0)}<span class="energy-unit">W</span></div>
+        <div class="energy-lbl">Solare</div>
+      </div>
+      <div class="energy-arrow">→</div>
+      <div class="energy-node">
+        <div class="energy-icon">🔋</div>
+        <div class="energy-val" style="color:${battColor}">${battW >= 0 ? '+' : ''}${battW.toFixed(0)}<span class="energy-unit">W</span></div>
+        <div class="energy-lbl">${battLabel}</div>
+      </div>
+      <div class="energy-arrow">→</div>
+      <div class="energy-node">
+        <div class="energy-icon">🏠</div>
+        <div class="energy-val">${loadW.toFixed(0)}<span class="energy-unit">W</span></div>
+        <div class="energy-lbl">Carichi</div>
+      </div>
+    </div>
+    ${solarW > 0 ? `
+    <div style="margin-top:10px">
+      <div style="height:6px;border-radius:3px;background:var(--surface2);overflow:hidden;display:flex">
+        <div style="width:${Math.min(100, (battW / Math.max(solarW, 1)) * 100).toFixed(0)}%;background:var(--green);border-radius:3px;transition:width .5s"></div>
+        <div style="flex:1;background:var(--amber);opacity:.6"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-2);margin-top:3px">
+        <span>🔋 Carica</span><span>🏠 Carichi</span>
+      </div>
+    </div>` : ''}
+  `;
+}
+
+// ── Historical charts ─────────────────────────────────────────────────────────
+function renderHistCharts() {
+  drawHistChart(el('hist-soc-container'),  'soc',   { color: '#4ADE80', unit: '%', label: 'SOC batteria',       yMin: 0, yMax: 100 });
+  drawHistChart(el('hist-pv-container'),   'pvW',   { color: '#F59E0B', unit: 'W', label: 'Produzione solare',  yMin: 0 });
+  drawHistChart(el('hist-batt-container'), 'battW', { color: '#38BDF8', unit: 'W', label: 'Potenza batteria' });
+}
+
+// ── Meteo / Campeggi screens ──────────────────────────────────────────────────
+async function renderMeteo() {
+  const body = el('meteo-body');
+  body.innerHTML = '<div class="connect-placeholder"><div class="icon">🌤</div><p>Caricamento meteo…</p></div>';
+  try { await renderWeather('meteo-body'); }
+  catch (e) { body.innerHTML = `<div class="alert alert-err">❌ ${e.message}</div><p style="font-size:12px;color:var(--text-2);padding:16px">Abilita il GPS per ottenere le previsioni meteo locali.</p>`; }
+}
+
+function renderCampeggi() {
+  renderCampsites('campeggi-body');
+}
+
+window.refreshCampeggi   = () => renderCampsites('campeggi-body');
+window.deleteCamp        = (id) => { deleteCampsite(id); renderCampeggi(); };
+window.updateCampNotes   = (id, notes) => updateNotes(id, notes);
+window.requestNotifPerm  = async () => { await requestPermission(); renderNotifSettings('notif-settings-body'); };
+window.saveNotifThreshold = (key, val) => { const t = getThresholds(); t[key] = val; saveThresholds(t); };
 
 // ── Auto-reconnect on startup ─────────────────────────────────────────────────
 async function autoReconnect() {
@@ -797,3 +892,5 @@ if ('serviceWorker' in navigator) {
 }
 
 autoReconnect();
+startTracking();
+renderHistCharts();
