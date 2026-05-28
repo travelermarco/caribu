@@ -35,6 +35,9 @@
     <!-- Reconnect banner (shown when getDevices() not available) -->
     <div id="reconnect-banner" class="reconnect-banner" style="display:none"></div>
 
+    <!-- Weather alerts banner -->
+    <div id="weather-alerts-area" style="display:none"></div>
+
     <div class="grid-2">
       <div class="stat-card" onclick="switchTab('heater')" style="cursor:pointer">
         <div class="stat-label">🔥 Riscaldatore</div>
@@ -102,6 +105,11 @@
     <div id="meteo-body"></div>
   </section>
 
+  <!-- ── Documenti van ────────────────────────────────────────────────────── -->
+  <section class="screen" id="screen-documenti">
+    <div id="documenti-body"></div>
+  </section>
+
   <!-- ── Campeggi ─────────────────────────────────────────────────────────── -->
   <section class="screen" id="screen-campeggi">
     <div id="campeggi-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -142,7 +150,7 @@
   <div class="dock-sheet" id="dock-sheet">
     <div class="dock-sheet-handle"></div>
     <div class="dock-sheet-title">Sezioni</div>
-    <div class="dock-sheet-grid">
+    <div class="dock-sheet-grid dock-sheet-grid-3">
       <button class="dock-sheet-item" data-tab="imou">
         <span class="dock-sheet-icon">📷</span>
         <span>Camere</span>
@@ -159,6 +167,10 @@
         <span class="dock-sheet-icon">📍</span>
         <span>Campeggi</span>
       </button>
+      <button class="dock-sheet-item" data-tab="documenti">
+        <span class="dock-sheet-icon">📂</span>
+        <span>Documenti</span>
+      </button>
     </div>
   </div>
 
@@ -167,26 +179,21 @@
 
 <script>
   const _PRIMARY_TABS   = ['dash','heater','bms','victron'];
-  const _SECONDARY_TABS = ['imou','settings','meteo','campeggi'];
+  const _SECONDARY_TABS = ['imou','settings','meteo','campeggi','documenti'];
 
   window.switchTab = (tab) => {
-    // Dock primary buttons
     document.querySelectorAll('#main-dock .dock-btn[data-tab]').forEach(b =>
       b.classList.toggle('active', b.dataset.tab === tab));
-    // Sheet items
     document.querySelectorAll('.dock-sheet-item').forEach(b =>
       b.classList.toggle('active', b.dataset.tab === tab));
-    // More button highlights when a secondary tab is active
     const moreBtn = document.getElementById('dock-more-btn');
     if (moreBtn) moreBtn.classList.toggle('active', _SECONDARY_TABS.includes(tab));
-    // Screens
     document.querySelectorAll('.screen').forEach(s =>
       s.classList.toggle('active', s.id === `screen-${tab}`));
-    // Close sheet if open
     window.closeDockSheet();
-    // Callbacks for lazy renders
-    if (tab === 'meteo')    window._onTabMeteo?.();
-    if (tab === 'campeggi') window._onTabCampeggi?.();
+    if (tab === 'meteo')     window._onTabMeteo?.();
+    if (tab === 'campeggi')  window._onTabCampeggi?.();
+    if (tab === 'documenti') window._onTabDocumenti?.();
   };
 
   window.openDockSheet  = () => {

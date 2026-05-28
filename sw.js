@@ -1,8 +1,9 @@
-const CACHE = 'caribu-v17';
+const CACHE = 'caribu-v18';
 const ASSETS = [
   '/', '/styles.css',
   '/js/app.js', '/js/chart.js', '/js/heater.js', '/js/bms.js', '/js/victron.js', '/js/imou.js',
   '/js/history.js', '/js/weather.js', '/js/campsites.js', '/js/notifications.js', '/js/maintenance.js',
+  '/js/alerts.js', '/js/lock.js', '/js/documents.js',
   '/icons/icon.svg', '/manifest.json',
 ];
 

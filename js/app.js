@@ -9,6 +9,9 @@ import { renderWeather }               from './weather.js';
 import { startTracking, renderCampsites, deleteCampsite, updateNotes } from './campsites.js';
 import { checkThresholds, requestPermission, renderNotifSettings, getThresholds, saveThresholds } from './notifications.js';
 import { renderMaintenance, markDone, checkMaintenanceAlerts } from './maintenance.js';
+import { checkWeatherAlerts, renderWeatherAlerts } from './alerts.js';
+import { initLock, clearLock, showPinSetup, registerBiometric, renderSecuritySettings } from './lock.js';
+import { renderDocuments, addDocument, getDocuments, deleteDocument } from './documents.js';
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 const chartSOC = new MiniChart({
@@ -178,11 +181,12 @@ if (k1) mppt1.setKey(k1);
 if (k2) mppt2.setKey(k2);
 
 // ── Tab routing (lazy renders wired via globals) ──────────────────────────────
-window._onTabMeteo    = () => renderMeteo();
-window._onTabCampeggi = () => renderCampeggi();
+window._onTabMeteo      = () => renderMeteo();
+window._onTabCampeggi   = () => renderCampeggi();
+window._onTabDocumenti  = () => renderDocuments('documenti-body');
 
 // ── Swipe gesture navigation ──────────────────────────────────────────────────
-const ALL_TABS = ['dash','heater','bms','victron','imou','settings','meteo','campeggi'];
+const ALL_TABS = ['dash','heater','bms','victron','imou','settings','meteo','campeggi','documenti'];
 let _tx = 0, _ty = 0;
 document.addEventListener('touchstart', e => {
   _tx = e.touches[0].clientX;
@@ -718,9 +722,14 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">🔧 Manutenzione</div>
       <div id="maint-body"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🔐 Sicurezza</div>
+      <div id="security-body"></div>
     </div>`;
   renderNotifSettings('notif-settings-body');
   renderMaintenance('maint-body');
+  renderSecuritySettings('security-body');
 }
 
 // ── Energy balance ────────────────────────────────────────────────────────────
@@ -1056,6 +1065,55 @@ window.maintMarkDone = (id) => {
   renderMaintenance('maint-body');
   toast('✓ Manutenzione registrata');
 };
+
+// ── Document handlers ─────────────────────────────────────────────────────────
+window._docPick = (input) => {
+  const file = input.files[0];
+  if (!file) return;
+  window._pendingDocFile = file;
+  const picker = document.getElementById('doc-cat-picker');
+  if (picker) picker.style.display = 'flex';
+};
+
+window._docCat = async (category) => {
+  const picker = document.getElementById('doc-cat-picker');
+  if (picker) picker.style.display = 'none';
+  const file = window._pendingDocFile;
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    await addDocument({ id: Date.now().toString(), name: file.name, category, type: file.type, data: e.target.result, ts: Date.now() });
+    toast('📄 Documento salvato');
+    renderDocuments('documenti-body');
+  };
+  reader.readAsDataURL(file);
+};
+
+window._docView = async (id) => {
+  const docs = await getDocuments();
+  const doc  = docs.find(d => d.id === id);
+  if (!doc) return;
+  const win = window.open('', '_blank');
+  if (doc.type?.startsWith('image/')) {
+    win.document.write(`<html><body style="margin:0;background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="${doc.data}" style="max-width:100%;max-height:100vh;object-fit:contain"></body></html>`);
+  } else {
+    win.location.href = doc.data;
+  }
+};
+
+window._docDel = async (id) => {
+  if (!confirm('Eliminare questo documento?')) return;
+  await deleteDocument(id);
+  toast('Documento eliminato');
+  renderDocuments('documenti-body');
+};
+
+// ── Security handlers ─────────────────────────────────────────────────────────
+window.secSetPIN    = () => showPinSetup(ok => { if (ok) { toast('🔒 PIN impostato'); renderSecuritySettings('security-body'); } });
+window.secChangePIN = () => showPinSetup(ok => { if (ok) { toast('🔒 PIN aggiornato'); renderSecuritySettings('security-body'); } });
+window.secRemovePIN = () => { clearLock(); toast('PIN rimosso'); renderSecuritySettings('security-body'); };
+window.secEnableBIO = async () => { const ok = await registerBiometric(); toast(ok ? '✓ Biometria attivata' : 'Biometria non disponibile'); renderSecuritySettings('security-body'); };
+window.secRemoveBIO = () => { localStorage.removeItem('caribu_bio_cred'); toast('Biometria rimossa'); renderSecuritySettings('security-body'); };
 window.clearSavedDevices = () => {
   ['ble_bms_id','ble_bms_name','ble_heater_id','ble_heater_name',
    'ble_mppt1_id','ble_mppt1_name','ble_mppt2_id','ble_mppt2_name'].forEach(k => localStorage.removeItem(k));
@@ -1096,6 +1154,22 @@ schedApply();
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(console.error);
 }
+
+// Weather alerts: check at startup + every 30 min
+async function _runWeatherAlerts() {
+  const alerts = await checkWeatherAlerts();
+  renderWeatherAlerts(alerts, 'weather-alerts-area');
+  if (alerts.length && Notification.permission === 'granted') {
+    alerts.forEach(a => {
+      try { new Notification(a.title, { body: a.msg, icon: '/icons/icon.svg' }); } catch {}
+    });
+  }
+}
+_runWeatherAlerts();
+setInterval(_runWeatherAlerts, 30 * 60 * 1000);
+
+// Lock screen (overlay over already-rendered app)
+initLock(() => {});
 
 autoReconnect();
 startTracking();
