@@ -177,16 +177,28 @@ const k2 = localStorage.getItem('victron_key_2');
 if (k1) mppt1.setKey(k1);
 if (k2) mppt2.setKey(k2);
 
-// ── Tab routing ───────────────────────────────────────────────────────────────
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const t = btn.dataset.tab;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === `screen-${t}`));
-    if (t === 'meteo')    renderMeteo();
-    if (t === 'campeggi') renderCampeggi();
-  });
-});
+// ── Tab routing (lazy renders wired via globals) ──────────────────────────────
+window._onTabMeteo    = () => renderMeteo();
+window._onTabCampeggi = () => renderCampeggi();
+
+// ── Swipe gesture navigation ──────────────────────────────────────────────────
+const ALL_TABS = ['dash','heater','bms','victron','imou','settings','meteo','campeggi'];
+let _tx = 0, _ty = 0;
+document.addEventListener('touchstart', e => {
+  _tx = e.touches[0].clientX;
+  _ty = e.touches[0].clientY;
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  // Ignore if sheet is open
+  if (document.getElementById('dock-sheet')?.classList.contains('open')) return;
+  const dx = e.changedTouches[0].clientX - _tx;
+  const dy = e.changedTouches[0].clientY - _ty;
+  if (Math.abs(dx) < 55 || Math.abs(dy) > Math.abs(dx) * 0.9) return;
+  const cur = ALL_TABS.find(t => document.getElementById(`screen-${t}`)?.classList.contains('active')) || 'dash';
+  const idx = ALL_TABS.indexOf(cur);
+  if (dx < 0 && idx < ALL_TABS.length - 1) window.switchTab(ALL_TABS[idx + 1]);
+  if (dx > 0 && idx > 0)                   window.switchTab(ALL_TABS[idx - 1]);
+}, { passive: true });
 
 // ── Connection dots ───────────────────────────────────────────────────────────
 function updateDots() {
@@ -260,6 +272,14 @@ function battWatts(voltage, current) {
   return w;
 }
 
+// ── Connect placeholders for dashboard ───────────────────────────────────────
+function connectPlaceholder(icon, label, onConnect) {
+  return `<div style="text-align:center;padding:4px 0">
+    <div style="font-size:26px;opacity:.35;margin-bottom:6px">${icon}</div>
+    <button class="btn btn-ghost" style="font-size:11px;padding:6px 14px;border-radius:10px" onclick="${onConnect}">Connetti</button>
+  </div>`;
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 function renderDash() {
   // Heater card
@@ -273,7 +293,7 @@ function renderDash() {
        </div>
        <div style="margin-top:8px">${badge(heaterOn ? 'green' : 'grey', heaterOn ? 'Attivo' : heater.stateLabel())}</div>
        ${heaterErr ? `<div style="font-size:11px;color:var(--red);margin-top:4px">⚠ ${heaterErr}</div>` : ''}`
-    : placeholder('🔥', 'Non connesso');
+    : connectPlaceholder('🔥', 'Riscaldatore', 'connectHeater()');
 
   // BMS card
   const bs = state.bms;
@@ -290,7 +310,7 @@ function renderDash() {
          ${badge(cs.badge, cs.label)}
          ${eta !== null ? `<span class="badge badge-grey">⏱ ${eta}</span>` : ''}
        </div>`
-    : placeholder('🔋', 'Non connesso');
+    : connectPlaceholder('🔋', 'Batterie', 'connectBMS()');
 
   // Solar card
   const totalW = (() => {
@@ -306,14 +326,14 @@ function renderDash() {
   el('dash-solar').innerHTML = (state.mppt1.connected || state.mppt2.connected)
     ? `<div class="big-num" style="color:var(--amber);font-size:38px">${totalW}<span class="big-unit" style="font-size:14px">W</span></div>
        <div class="stat-sub">Oggi: ${yT} kWh</div>`
-    : placeholder('☀️', 'Non connesso');
+    : connectPlaceholder('☀️', 'Solare', 'connectMPPT(1)');
 
   // Imou card
   const ic = state.imou;
   el('dash-imou').innerHTML = ic.connected
     ? `<div style="font-size:13px;color:var(--text-2)">${ic.devices.length} camera${ic.devices.length !== 1 ? 'e' : ''}</div>
        ${badge('green', 'Online')}`
-    : placeholder('📷', 'Non connesso');
+    : connectPlaceholder('📷', 'Camere', "imou.connect()");
 }
 
 // ── Heater screen ─────────────────────────────────────────────────────────────

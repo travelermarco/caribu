@@ -66,17 +66,6 @@
       <div id="hist-batt-container"></div>
     </div>
 
-    <div class="card" style="margin-top:4px">
-      <div class="card-title">Connessioni rapide</div>
-      <div style="display:flex;flex-direction:column;gap:8px">
-        <button class="btn btn-ghost btn-full" id="quick-heater" onclick="connectHeater()">🔥 Connetti riscaldatore</button>
-        <button class="btn btn-ghost btn-full" id="quick-bms"    onclick="connectBMS()">🔋 Connetti batterie</button>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-ghost" style="flex:1" onclick="connectMPPT(1)">☀️ MPPT 1</button>
-          <button class="btn btn-ghost" style="flex:1" onclick="connectMPPT(2)">☀️ MPPT 2</button>
-        </div>
-      </div>
-    </div>
   </section>
 
   <!-- ── Riscaldatore ──────────────────────────────────────────────────────── -->
@@ -118,51 +107,98 @@
     <div id="campeggi-body"></div>
   </section>
 
-  <!-- Tab bar -->
-  <nav class="tab-bar">
-    <button class="tab-btn active" data-tab="dash">
-      <span class="tab-icon">🏠</span>
-      <span>Home</span>
+  <!-- Floating dock -->
+  <nav class="dock" id="main-dock">
+    <button class="dock-btn active" data-tab="dash">
+      <span class="dock-icon">🏠</span>
+      <span class="dock-label">Home</span>
     </button>
-    <button class="tab-btn" data-tab="heater">
-      <span class="tab-icon">🔥</span>
-      <span>Heater</span>
+    <button class="dock-btn" data-tab="heater">
+      <span class="dock-icon">🔥</span>
+      <span class="dock-label">Heater</span>
     </button>
-    <button class="tab-btn" data-tab="bms">
-      <span class="tab-icon">🔋</span>
-      <span>Batterie</span>
+    <button class="dock-btn" data-tab="bms">
+      <span class="dock-icon">🔋</span>
+      <span class="dock-label">Batterie</span>
     </button>
-    <button class="tab-btn" data-tab="victron">
-      <span class="tab-icon">☀️</span>
-      <span>Solare</span>
+    <button class="dock-btn" data-tab="victron">
+      <span class="dock-icon">☀️</span>
+      <span class="dock-label">Solare</span>
     </button>
-    <button class="tab-btn" data-tab="imou">
-      <span class="tab-icon">📷</span>
-      <span>Camere</span>
-    </button>
-    <button class="tab-btn" data-tab="settings">
-      <span class="tab-icon">⚙️</span>
-      <span>Config</span>
-    </button>
-    <button class="tab-btn" data-tab="meteo">
-      <span class="tab-icon">🌤</span>
-      <span>Meteo</span>
-    </button>
-    <button class="tab-btn" data-tab="campeggi">
-      <span class="tab-icon">📍</span>
-      <span>Campeggi</span>
+    <button class="dock-btn dock-more" id="dock-more-btn">
+      <span class="dock-icon">•••</span>
+      <span class="dock-label">Altro</span>
     </button>
   </nav>
+
+  <!-- Bottom sheet backdrop -->
+  <div class="dock-overlay" id="dock-overlay" onclick="window.closeDockSheet()"></div>
+
+  <!-- Bottom sheet -->
+  <div class="dock-sheet" id="dock-sheet">
+    <div class="dock-sheet-handle"></div>
+    <div class="dock-sheet-title">Sezioni</div>
+    <div class="dock-sheet-grid">
+      <button class="dock-sheet-item" data-tab="imou">
+        <span class="dock-sheet-icon">📷</span>
+        <span>Camere</span>
+      </button>
+      <button class="dock-sheet-item" data-tab="settings">
+        <span class="dock-sheet-icon">⚙️</span>
+        <span>Config</span>
+      </button>
+      <button class="dock-sheet-item" data-tab="meteo">
+        <span class="dock-sheet-icon">🌤</span>
+        <span>Meteo</span>
+      </button>
+      <button class="dock-sheet-item" data-tab="campeggi">
+        <span class="dock-sheet-icon">📍</span>
+        <span>Campeggi</span>
+      </button>
+    </div>
+  </div>
 
   <div id="toast"></div>
 </div>
 
 <script>
-  // switchTab helper (called from dashboard cards)
+  const _PRIMARY_TABS   = ['dash','heater','bms','victron'];
+  const _SECONDARY_TABS = ['imou','settings','meteo','campeggi'];
+
   window.switchTab = (tab) => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-    document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === `screen-${tab}`));
+    // Dock primary buttons
+    document.querySelectorAll('#main-dock .dock-btn[data-tab]').forEach(b =>
+      b.classList.toggle('active', b.dataset.tab === tab));
+    // Sheet items
+    document.querySelectorAll('.dock-sheet-item').forEach(b =>
+      b.classList.toggle('active', b.dataset.tab === tab));
+    // More button highlights when a secondary tab is active
+    const moreBtn = document.getElementById('dock-more-btn');
+    if (moreBtn) moreBtn.classList.toggle('active', _SECONDARY_TABS.includes(tab));
+    // Screens
+    document.querySelectorAll('.screen').forEach(s =>
+      s.classList.toggle('active', s.id === `screen-${tab}`));
+    // Close sheet if open
+    window.closeDockSheet();
+    // Callbacks for lazy renders
+    if (tab === 'meteo')    window._onTabMeteo?.();
+    if (tab === 'campeggi') window._onTabCampeggi?.();
   };
+
+  window.openDockSheet  = () => {
+    document.getElementById('dock-sheet').classList.add('open');
+    document.getElementById('dock-overlay').classList.add('open');
+  };
+  window.closeDockSheet = () => {
+    document.getElementById('dock-sheet').classList.remove('open');
+    document.getElementById('dock-overlay').classList.remove('open');
+  };
+
+  document.getElementById('dock-more-btn').addEventListener('click', window.openDockSheet);
+  document.querySelectorAll('.dock-sheet-item').forEach(btn =>
+    btn.addEventListener('click', () => window.switchTab(btn.dataset.tab)));
+  document.querySelectorAll('#main-dock .dock-btn[data-tab]').forEach(btn =>
+    btn.addEventListener('click', () => window.switchTab(btn.dataset.tab)));
 </script>
 <script type="module" src="/js/app.js"></script>
 </body>
