@@ -877,47 +877,72 @@ async function autoReconnect() {
 function _showReconnectBanner(saved) {
   const banner = document.getElementById('reconnect-banner');
   if (!banner) return;
-  const names = {
-    heater: localStorage.getItem('ble_heater_name') || 'Riscaldatore',
-    bms:    localStorage.getItem('ble_bms_name')    || 'Batterie',
-    mppt1:  localStorage.getItem('ble_mppt1_name')  || 'MPPT 1',
-    mppt2:  localStorage.getItem('ble_mppt2_name')  || 'MPPT 2',
-  };
   const missing = [
-    saved.heater && !state.heater.connected && { key:'heater', icon:'🔥', label: names.heater },
-    saved.bms    && !state.bms.connected    && { key:'bms',    icon:'🔋', label: names.bms    },
-    saved.mppt1  && !state.mppt1.connected  && { key:'mppt1',  icon:'☀️', label: names.mppt1  },
-    saved.mppt2  && !state.mppt2.connected  && { key:'mppt2',  icon:'☀️', label: names.mppt2  },
+    saved.heater && !state.heater.connected && { key:'heater', icon:'🔥' },
+    saved.bms    && !state.bms.connected    && { key:'bms',    icon:'🔋' },
+    saved.mppt1  && !state.mppt1.connected  && { key:'mppt1',  icon:'☀️' },
+    saved.mppt2  && !state.mppt2.connected  && { key:'mppt2',  icon:'☀️' },
   ].filter(Boolean);
   if (!missing.length) { banner.style.display = 'none'; return; }
 
-  // Se abbiamo oggetti device per tutti → bottone unico "Riconnetti tutto"
-  const allHaveCached = missing.every(m => _bleCache[m.key]);
-  banner.innerHTML = allHaveCached
-    ? `<div class="reconnect-label">📶 ${missing.length} dispositiv${missing.length > 1 ? 'i' : 'o'} non connett${missing.length > 1 ? 'i' : 'o'}</div>
-       <button class="reconnect-chip reconnect-all" onclick="window.quickReconnectAll()">🔄 Riconnetti tutto</button>`
-    : `<div class="reconnect-label">📶 Dispositivi precedenti</div>
-       <div class="reconnect-btns">
-         ${missing.map(m => `<button class="reconnect-chip" onclick="window.quickReconnect('${m.key}')">${m.icon} ${m.label}</button>`).join('')}
-       </div>`;
+  const icons = missing.map(m => m.icon).join(' ');
+  banner.innerHTML = `
+    <div class="reconnect-label">📶 ${icons} Non connessi</div>
+    <button class="reconnect-chip reconnect-all" onclick="window.quickReconnectAll()">🔄 Riconnetti tutto</button>`;
   banner.style.display = '';
 }
 
 window.quickReconnectAll = async () => {
   const banner = document.getElementById('reconnect-banner');
-  if (banner) banner.innerHTML = '<div class="reconnect-label">🔄 Riconnessione in corso…</div><div class="reconnect-btns"><span style="font-size:12px;color:var(--text-2)">attendere qualche secondo</span></div>';
-
-  if (_bleCache.heater && !state.heater.connected) { setDotConnecting('dot-heater'); heater.reconnect(_bleCache.heater); }
-  if (_bleCache.bms    && !state.bms.connected)    { setDotConnecting('dot-bms');    bms.reconnect(_bleCache.bms); }
-  if (_bleCache.mppt1  && !state.mppt1.connected)  { setDotConnecting('dot-mppt1');  mppt1.reconnect(_bleCache.mppt1); }
-  if (_bleCache.mppt2  && !state.mppt2.connected)  { setDotConnecting('dot-mppt2');  mppt2.reconnect(_bleCache.mppt2); }
-
-  // Dopo 8s controlla se ci sono ancora device non connessi
-  await new Promise(r => setTimeout(r, 8000));
   const saved = {
     bms: localStorage.getItem('ble_bms_id'), heater: localStorage.getItem('ble_heater_id'),
     mppt1: localStorage.getItem('ble_mppt1_id'), mppt2: localStorage.getItem('ble_mppt2_id'),
   };
+
+  // Prova prima a riacquisire il cache (caso: getDevices() era vuota al boot ma ora funziona)
+  if (navigator.bluetooth?.getDevices) {
+    try {
+      for (const dev of await navigator.bluetooth.getDevices()) {
+        if (dev.id === saved.heater) _bleCache.heater = dev;
+        if (dev.id === saved.bms)    _bleCache.bms    = dev;
+        if (dev.id === saved.mppt1)  _bleCache.mppt1  = dev;
+        if (dev.id === saved.mppt2)  _bleCache.mppt2  = dev;
+      }
+    } catch {}
+  }
+
+  // Device con oggetto in cache → gatt.connect() silenzioso
+  const silent = [];
+  if (_bleCache.heater && saved.heater && !state.heater.connected) { setDotConnecting('dot-heater'); heater.reconnect(_bleCache.heater); silent.push('heater'); }
+  if (_bleCache.bms    && saved.bms    && !state.bms.connected)    { setDotConnecting('dot-bms');    bms.reconnect(_bleCache.bms);       silent.push('bms'); }
+  if (_bleCache.mppt1  && saved.mppt1  && !state.mppt1.connected)  { setDotConnecting('dot-mppt1');  mppt1.reconnect(_bleCache.mppt1);   silent.push('mppt1'); }
+  if (_bleCache.mppt2  && saved.mppt2  && !state.mppt2.connected)  { setDotConnecting('dot-mppt2');  mppt2.reconnect(_bleCache.mppt2);   silent.push('mppt2'); }
+
+  // Device senza cache → picker obbligatorio, uno alla volta
+  const needPicker = [
+    saved.heater && !_bleCache.heater && !state.heater.connected && 'heater',
+    saved.bms    && !_bleCache.bms    && !state.bms.connected    && 'bms',
+    saved.mppt1  && !_bleCache.mppt1  && !state.mppt1.connected  && 'mppt1',
+    saved.mppt2  && !_bleCache.mppt2  && !state.mppt2.connected  && 'mppt2',
+  ].filter(Boolean);
+
+  if (silent.length) {
+    if (banner) banner.innerHTML = `<div class="reconnect-label">🔄 Connessione in corso…</div><div class="reconnect-btns"><span style="font-size:12px;color:var(--text-2)">${silent.length} dispositiv${silent.length > 1 ? 'i' : 'o'}</span></div>`;
+  }
+
+  if (needPicker.length) {
+    // Apre picker sequenzialmente per ogni device senza cache
+    const pickerFns = { heater: window.connectHeater, bms: window.connectBMS, mppt1: () => window.connectMPPT(1), mppt2: () => window.connectMPPT(2) };
+    for (const key of needPicker) {
+      const names = { heater:'Riscaldatore', bms:'Batterie', mppt1:'MPPT 1', mppt2:'MPPT 2' };
+      if (banner) banner.innerHTML = `<div class="reconnect-label">🔵 Seleziona <strong>${names[key]}</strong> nel menu BLE</div>`;
+      await pickerFns[key]?.();
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  // Aggiorna banner dopo 7s
+  await new Promise(r => setTimeout(r, 7000));
   _showReconnectBanner(saved);
 };
 
