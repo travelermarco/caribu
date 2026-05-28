@@ -97,6 +97,22 @@ export class VictronMPPT {
     }
   }
 
+  async connectFiltered(nameHint) {
+    try {
+      const options = nameHint
+        ? { filters: [{ name: nameHint }], optionalManufacturerData: [VICTRON_COMPANY_ID] }
+        : { acceptAllDevices: true, optionalManufacturerData: [VICTRON_COMPANY_ID] };
+      this.device = await navigator.bluetooth.requestDevice(options);
+      const lbl = this.label.replace(/\s/g, '').toLowerCase();
+      localStorage.setItem(`ble_${lbl}_id`,   this.device.id);
+      localStorage.setItem(`ble_${lbl}_name`, this.device.name || nameHint || this.label);
+      return await this._startAdvertisements();
+    } catch (e) {
+      if (e.name !== 'NotFoundError') console.error(`Victron ${this.label} connectFiltered:`, e);
+      return false;
+    }
+  }
+
   // Called by auto-reconnect: skips the BLE picker, uses existing device object
   async reconnect(device) {
     this.device = device;

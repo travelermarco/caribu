@@ -51,6 +51,21 @@ export class BMABLE {
     }
   }
 
+  async connectFiltered(nameHint) {
+    try {
+      const options = nameHint
+        ? { filters: [{ name: nameHint }] }
+        : { filters: [{ services: [SVC] }] };
+      this.device = await navigator.bluetooth.requestDevice(options);
+      localStorage.setItem('ble_bms_id',   this.device.id);
+      localStorage.setItem('ble_bms_name', this.device.name || nameHint || 'BMS');
+      return await this._connectDevice();
+    } catch (e) {
+      if (e.name !== 'NotFoundError') console.error('BMS connectFiltered:', e);
+      return false;
+    }
+  }
+
   // Called by auto-reconnect: skips the BLE picker, uses existing device object
   async reconnect(device) {
     this.device = device;

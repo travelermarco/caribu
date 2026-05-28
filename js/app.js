@@ -931,13 +931,17 @@ window.quickReconnectAll = async () => {
   }
 
   if (needPicker.length) {
-    // Apre picker sequenzialmente per ogni device senza cache
-    const pickerFns = { heater: window.connectHeater, bms: window.connectBMS, mppt1: () => window.connectMPPT(1), mppt2: () => window.connectMPPT(2) };
+    // Picker filtrato per nome — 1 voce sola nel picker, solo 1 tap per device
+    const instMap = { heater, bms, mppt1, mppt2 };
+    const nameKey = { heater:'ble_heater_name', bms:'ble_bms_name', mppt1:'ble_mppt1_name', mppt2:'ble_mppt2_name' };
+    const dotMap  = { heater:'dot-heater', bms:'dot-bms', mppt1:'dot-mppt1', mppt2:'dot-mppt2' };
+    const labels  = { heater:'Riscaldatore', bms:'Batterie', mppt1:'MPPT 1', mppt2:'MPPT 2' };
     for (const key of needPicker) {
-      const names = { heater:'Riscaldatore', bms:'Batterie', mppt1:'MPPT 1', mppt2:'MPPT 2' };
-      if (banner) banner.innerHTML = `<div class="reconnect-label">🔵 Seleziona <strong>${names[key]}</strong> nel menu BLE</div>`;
-      await pickerFns[key]?.();
-      await new Promise(r => setTimeout(r, 1000));
+      const nameHint = localStorage.getItem(nameKey[key]) || null;
+      if (banner) banner.innerHTML = `<div class="reconnect-label">🔵 Seleziona <strong>${nameHint || labels[key]}</strong> nel menu BLE</div>`;
+      setDotConnecting(dotMap[key]);
+      await instMap[key].connectFiltered(nameHint);
+      await new Promise(r => setTimeout(r, 800));
     }
   }
 
@@ -947,26 +951,23 @@ window.quickReconnectAll = async () => {
 };
 
 window.quickReconnect = async (key) => {
-  // Se abbiamo l'oggetto device → tenta gatt.connect() diretto (nessun picker)
+  const dotMap  = { heater:'dot-heater', bms:'dot-bms', mppt1:'dot-mppt1', mppt2:'dot-mppt2' };
+  const instMap = { heater, bms, mppt1, mppt2 };
+  const nameKey = { heater:'ble_heater_name', bms:'ble_bms_name', mppt1:'ble_mppt1_name', mppt2:'ble_mppt2_name' };
+  setDotConnecting(dotMap[key]);
   if (_bleCache[key]) {
-    const dotMap = { heater:'dot-heater', bms:'dot-bms', mppt1:'dot-mppt1', mppt2:'dot-mppt2' };
-    setDotConnecting(dotMap[key]);
-    toast('🔄 Connessione…');
-    const inst = { heater, bms, mppt1, mppt2 }[key];
-    await inst.reconnect(_bleCache[key]);
+    // Cache disponibile → gatt.connect() silenzioso, nessun picker
+    await instMap[key].reconnect(_bleCache[key]);
   } else {
-    // Nessun oggetto in cache → picker obbligatorio
-    const fns = { heater: window.connectHeater, bms: window.connectBMS, mppt1: () => window.connectMPPT(1), mppt2: () => window.connectMPPT(2) };
-    fns[key]?.();
+    // Nessun cache → picker filtrato per nome (mostra solo 1 voce)
+    const nameHint = localStorage.getItem(nameKey[key]) || null;
+    await instMap[key].connectFiltered(nameHint);
   }
-  // Aggiorna banner
   setTimeout(() => {
-    const saved = {
-      bms: localStorage.getItem('ble_bms_id'), heater: localStorage.getItem('ble_heater_id'),
-      mppt1: localStorage.getItem('ble_mppt1_id'), mppt2: localStorage.getItem('ble_mppt2_id'),
-    };
+    const saved = { bms: localStorage.getItem('ble_bms_id'), heater: localStorage.getItem('ble_heater_id'),
+                    mppt1: localStorage.getItem('ble_mppt1_id'), mppt2: localStorage.getItem('ble_mppt2_id') };
     _showReconnectBanner(saved);
-  }, 3000);
+  }, 2000);
 };
 
 // ── Global actions ────────────────────────────────────────────────────────────

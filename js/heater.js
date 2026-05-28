@@ -69,6 +69,22 @@ export class HeaterBLE {
     }
   }
 
+  // Picker filtrato per nome — mostra solo 1 device, niente scroll tra tutti i BT vicini
+  async connectFiltered(nameHint) {
+    try {
+      const options = nameHint
+        ? { filters: [{ name: nameHint }], optionalServices: [HEATER_SERVICE] }
+        : { acceptAllDevices: true, optionalServices: [HEATER_SERVICE] };
+      this.device = await navigator.bluetooth.requestDevice(options);
+      localStorage.setItem('ble_heater_id',   this.device.id);
+      localStorage.setItem('ble_heater_name', this.device.name || nameHint || 'Riscaldatore');
+      return await this._connectDevice();
+    } catch (e) {
+      if (e.name !== 'NotFoundError') console.error('Heater connectFiltered:', e);
+      return false;
+    }
+  }
+
   async reconnect(device) {
     this.device = device;
     try { return await this._connectDevice(); }
