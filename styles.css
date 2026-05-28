@@ -506,6 +506,7 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
   -webkit-tap-highlight-color: transparent;
 }
 .reconnect-chip:active { transform: scale(.95); background: rgba(56,189,248,0.2); }
+.reconnect-all { background: rgba(56,189,248,0.15); border-color: rgba(56,189,248,0.4); padding: 8px 18px; font-size: 13px; }
 
 /* ── Maintenance ──────────────────────────────────────────────────────────── */
 .maint-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
