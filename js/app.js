@@ -830,25 +830,54 @@ window.saveNotifThreshold = (key, val) => { const t = getThresholds(); t[key] = 
 
 // ── Auto-reconnect on startup ─────────────────────────────────────────────────
 async function autoReconnect() {
-  if (!navigator.bluetooth?.getDevices) return;
-  let devices;
-  try { devices = await navigator.bluetooth.getDevices(); }
-  catch (e) { console.warn('getDevices not available:', e); return; }
-  if (!devices.length) return;
+  const saved = {
+    bms:    localStorage.getItem('ble_bms_id'),
+    heater: localStorage.getItem('ble_heater_id'),
+    mppt1:  localStorage.getItem('ble_mppt1_id'),
+    mppt2:  localStorage.getItem('ble_mppt2_id'),
+  };
+  const hasSaved = Object.values(saved).some(Boolean);
+  if (!hasSaved) return;
 
-  const bmsId    = localStorage.getItem('ble_bms_id');
-  const heaterId = localStorage.getItem('ble_heater_id');
-  const mppt1Id  = localStorage.getItem('ble_mppt1_id');
-  const mppt2Id  = localStorage.getItem('ble_mppt2_id');
-
-  let any = false;
-  for (const device of devices) {
-    if (device.id === bmsId)    { any = true; setDotConnecting('dot-bms');    bms.reconnect(device); }
-    if (device.id === heaterId) { any = true; setDotConnecting('dot-heater'); heater.reconnect(device); }
-    if (device.id === mppt1Id)  { any = true; setDotConnecting('dot-mppt1'); mppt1.reconnect(device); }
-    if (device.id === mppt2Id)  { any = true; setDotConnecting('dot-mppt2'); mppt2.reconnect(device); }
+  // Try getDevices() first (Chrome 85+ — no user gesture required)
+  if (navigator.bluetooth?.getDevices) {
+    try {
+      const devices = await navigator.bluetooth.getDevices();
+      let matched = 0;
+      for (const dev of devices) {
+        if (dev.id === saved.bms)    { setDotConnecting('dot-bms');    bms.reconnect(dev);    matched++; }
+        if (dev.id === saved.heater) { setDotConnecting('dot-heater'); heater.reconnect(dev); matched++; }
+        if (dev.id === saved.mppt1)  { setDotConnecting('dot-mppt1'); mppt1.reconnect(dev);  matched++; }
+        if (dev.id === saved.mppt2)  { setDotConnecting('dot-mppt2'); mppt2.reconnect(dev);  matched++; }
+      }
+      if (matched > 0) { toast('🔄 Riconnessione in corso…'); return; }
+    } catch (e) { console.warn('getDevices failed:', e); }
   }
-  if (any) toast('🔄 Riconnessione automatica…');
+
+  // getDevices() not available or returned nothing — show reconnect banner
+  setTimeout(() => _showReconnectBanner(saved), 500);
+}
+
+function _showReconnectBanner(saved) {
+  const items = [
+    saved.heater && { key: 'heater', icon: '🔥', label: localStorage.getItem('ble_heater_name') || 'Riscaldatore', fn: 'connectHeater()' },
+    saved.bms    && { key: 'bms',    icon: '🔋', label: localStorage.getItem('ble_bms_name')    || 'Batterie',     fn: 'connectBMS()' },
+    saved.mppt1  && { key: 'mppt1',  icon: '☀️', label: localStorage.getItem('ble_mppt1_name')  || 'MPPT 1',       fn: 'connectMPPT(1)' },
+    saved.mppt2  && { key: 'mppt2',  icon: '☀️', label: localStorage.getItem('ble_mppt2_name')  || 'MPPT 2',       fn: 'connectMPPT(2)' },
+  ].filter(Boolean);
+  if (!items.length) return;
+
+  const banner = document.getElementById('reconnect-banner');
+  if (!banner) return;
+  banner.innerHTML = `
+    <div class="reconnect-label">📶 Dispositivi precedenti</div>
+    <div class="reconnect-btns">
+      ${items.map(i => `
+        <button class="reconnect-chip" onclick="${i.fn};document.getElementById('reconnect-banner').style.display='none'">
+          ${i.icon} ${i.label}
+        </button>`).join('')}
+    </div>`;
+  banner.style.display = '';
 }
 
 // ── Global actions ────────────────────────────────────────────────────────────
@@ -938,7 +967,10 @@ window.maintMarkDone = (id) => {
   toast('✓ Manutenzione registrata');
 };
 window.clearSavedDevices = () => {
-  ['ble_bms_id', 'ble_heater_id', 'ble_mppt1_id', 'ble_mppt2_id'].forEach(k => localStorage.removeItem(k));
+  ['ble_bms_id','ble_bms_name','ble_heater_id','ble_heater_name',
+   'ble_mppt1_id','ble_mppt1_name','ble_mppt2_id','ble_mppt2_name'].forEach(k => localStorage.removeItem(k));
+  const b = document.getElementById('reconnect-banner');
+  if (b) b.style.display = 'none';
   toast('Dispositivi dimenticati');
   renderSettings();
 };

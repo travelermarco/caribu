@@ -31,6 +31,10 @@
 
   <!-- ── Dashboard ────────────────────────────────────────────────────────── -->
   <section class="screen active" id="screen-dash">
+
+    <!-- Reconnect banner (shown when getDevices() not available) -->
+    <div id="reconnect-banner" class="reconnect-banner" style="display:none"></div>
+
     <div class="grid-2">
       <div class="stat-card" onclick="switchTab('heater')" style="cursor:pointer">
         <div class="stat-label">🔥 Riscaldatore</div>

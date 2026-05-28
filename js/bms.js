@@ -40,6 +40,7 @@ export class BMABLE {
         filters: [{ services: [SVC] }],
       });
       localStorage.setItem('ble_bms_id', this.device.id);
+      localStorage.setItem('ble_bms_name', this.device.name || 'BMS');
       return await this._connectDevice();
     } catch (e) {
       if (e.name === 'NotFoundError') return false;
@@ -169,5 +170,15 @@ export class BMABLE {
     this.data.connected = false;
     this.wChar = null;
     this.onUpdate({ ...this.data });
+    if (this.device) this._scheduleRetry(0);
+  }
+
+  async _scheduleRetry(attempt) {
+    if (attempt >= 6 || this.data.connected) return;
+    const delay = [3000, 5000, 10000, 15000, 20000, 30000][attempt];
+    await new Promise(r => setTimeout(r, delay));
+    if (this.data.connected) return;
+    try { await this._connectDevice(); }
+    catch { this._scheduleRetry(attempt + 1); }
   }
 }

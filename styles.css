@@ -483,6 +483,30 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 .camp-notes { width: 100%; margin-top: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 12px; resize: vertical; min-height: 40px; outline: none; font-family: inherit; }
 .camp-notes:focus { border-color: rgba(245,158,11,.4); }
 
+/* ── Reconnect banner ─────────────────────────────────────────────────────── */
+.reconnect-banner {
+  background: rgba(56,189,248,0.07);
+  border: 1px solid rgba(56,189,248,0.2);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.reconnect-label { font-size: 12px; font-weight: 700; color: var(--blue); white-space: nowrap; }
+.reconnect-btns  { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.reconnect-chip  {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 12px; border-radius: 99px;
+  background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.25);
+  color: var(--text); font-size: 12px; font-weight: 700;
+  cursor: pointer; transition: background .15s, transform .1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.reconnect-chip:active { transform: scale(.95); background: rgba(56,189,248,0.2); }
+
 /* ── Maintenance ──────────────────────────────────────────────────────────── */
 .maint-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .maint-item:last-child { border-bottom: none; }

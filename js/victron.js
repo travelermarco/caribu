@@ -87,6 +87,7 @@ export class VictronMPPT {
         optionalManufacturerData: [VICTRON_COMPANY_ID],
       });
       localStorage.setItem(`ble_${this.label.replace(/\s/g, '').toLowerCase()}_id`, this.device.id);
+      localStorage.setItem(`ble_${this.label.replace(/\s/g, '').toLowerCase()}_name`, this.device.name || this.label);
       return await this._startAdvertisements();
     } catch (e) {
       console.error(`Victron ${this.label} connect error:`, e);
@@ -261,5 +262,15 @@ export class VictronMPPT {
   _onDisconnect() {
     this.data.connected = false;
     this.onUpdate({ ...this.data });
+    if (this.device) this._scheduleRetry(0);
+  }
+
+  async _scheduleRetry(attempt) {
+    if (attempt >= 6 || this.data.connected) return;
+    const delay = [3000, 5000, 10000, 15000, 20000, 30000][attempt];
+    await new Promise(r => setTimeout(r, delay));
+    if (this.data.connected) return;
+    try { await this._startAdvertisements(); }
+    catch { this._scheduleRetry(attempt + 1); }
   }
 }
