@@ -44,6 +44,43 @@ export function getRecent(hours = 24) {
   return _load().filter(e => e.ts >= cutoff);
 }
 
+/**
+ * estimateAutonomy(state) — stima autonomia in ore basata su consumo medio ultime 2h.
+ * Ritorna ore (float) o null se dati insufficienti.
+ */
+export function estimateAutonomy(state) {
+  const soc      = parseInt(state.bms?.soc);
+  const capacity = parseFloat(state.bms?.capacity);
+  const voltage  = parseFloat(state.bms?.voltage);
+  if (isNaN(soc) || isNaN(capacity) || isNaN(voltage) || capacity <= 0 || voltage <= 0) return null;
+
+  const recent = getRecent(2).filter(p => p.battW != null);
+  if (recent.length < 3) return null;
+
+  const avgNetW = recent.reduce((s, p) => s + p.battW, 0) / recent.length;
+  const netLoadW = -avgNetW; // positivo = batteria in scarica
+  if (netLoadW <= 1) return null;
+
+  const remainingWh = (soc / 100) * capacity * voltage;
+  return remainingWh / netLoadW;
+}
+
+/**
+ * getCumulativeEnergy(hours) — kWh prodotti e consumati negli ultimi N ore.
+ */
+export function getCumulativeEnergy(hours = 24) {
+  const points = getRecent(hours).filter(p => p.pvW != null || p.battW != null);
+  if (!points.length) return { pvKwh: 0, loadKwh: 0 };
+  const intervalH = INTERVAL_MS / 3600000;
+  let pvKwh = 0, loadKwh = 0;
+  for (const p of points) {
+    pvKwh   += ((p.pvW ?? 0) * intervalH) / 1000;
+    const loadW = Math.max(0, (p.pvW ?? 0) - Math.max(0, p.battW ?? 0));
+    loadKwh += (loadW * intervalH) / 1000;
+  }
+  return { pvKwh, loadKwh };
+}
+
 // ── SVG time-series chart ─────────────────────────────────────────────────────
 const W = 320, H = 90;
 const PAD = { t: 6, r: 4, b: 18, l: 36 };

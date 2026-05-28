@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="it" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -18,11 +18,14 @@
   <!-- Header -->
   <header class="app-header">
     <h1>🚐 Caribù</h1>
-    <div class="conn-dots" title="Stato connessioni">
-      <div class="conn-dot" id="dot-heater" title="Riscaldatore"></div>
-      <div class="conn-dot" id="dot-bms"    title="Batterie"></div>
-      <div class="conn-dot" id="dot-mppt1"  title="MPPT 1"></div>
-      <div class="conn-dot" id="dot-mppt2"  title="MPPT 2"></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button id="theme-toggle" title="Tema chiaro/scuro" onclick="window.toggleTheme()">🌙</button>
+      <div class="conn-dots" title="Stato connessioni">
+        <div class="conn-dot" id="dot-heater" title="Riscaldatore"></div>
+        <div class="conn-dot" id="dot-bms"    title="Batterie"></div>
+        <div class="conn-dot" id="dot-mppt1"  title="MPPT 1"></div>
+        <div class="conn-dot" id="dot-mppt2"  title="MPPT 2"></div>
+      </div>
     </div>
   </header>
 

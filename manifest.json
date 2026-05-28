@@ -20,5 +20,25 @@
       "type": "image/svg+xml",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Batterie",
+      "short_name": "BMS",
+      "url": "/?tab=bms",
+      "icons": [{"src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+    },
+    {
+      "name": "Solare",
+      "short_name": "MPPT",
+      "url": "/?tab=victron",
+      "icons": [{"src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+    },
+    {
+      "name": "Riscaldatore",
+      "short_name": "Heater",
+      "url": "/?tab=heater",
+      "icons": [{"src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+    }
   ]
 }

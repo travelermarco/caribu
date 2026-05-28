@@ -4,10 +4,11 @@ import { BMABLE }                    from './bms.js';
 import { VictronMPPT }               from './victron.js';
 import { ImouAPI }                   from './imou.js';
 import { MiniChart }                 from './chart.js';
-import { pushSnapshot, drawHistChart } from './history.js';
+import { pushSnapshot, drawHistChart, estimateAutonomy, getCumulativeEnergy } from './history.js';
 import { renderWeather }               from './weather.js';
 import { startTracking, renderCampsites, deleteCampsite, updateNotes } from './campsites.js';
 import { checkThresholds, requestPermission, renderNotifSettings, getThresholds, saveThresholds } from './notifications.js';
+import { renderMaintenance, markDone, checkMaintenanceAlerts } from './maintenance.js';
 
 // ── Charts ────────────────────────────────────────────────────────────────────
 const chartSOC = new MiniChart({
@@ -693,8 +694,13 @@ function renderSettings() {
     <div class="card">
       <div class="card-title">🔔 Notifiche</div>
       <div id="notif-settings-body"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🔧 Manutenzione</div>
+      <div id="maint-body"></div>
     </div>`;
   renderNotifSettings('notif-settings-body');
+  renderMaintenance('maint-body');
 }
 
 // ── Energy balance ────────────────────────────────────────────────────────────
@@ -710,6 +716,38 @@ function renderEnergy() {
   if (!hasData) return;
   const battColor = battW >= 0 ? 'var(--green)' : 'var(--amber)';
   const battLabel = battW >= 0 ? '↑ carica' : '↓ scarica';
+
+  // Autonomia off-grid
+  const autoH = estimateAutonomy(state);
+  let autoHtml = '';
+  if (autoH !== null) {
+    const d = Math.floor(autoH / 24);
+    const h = Math.floor(autoH % 24);
+    const m = Math.floor((autoH * 60) % 60);
+    const label = d > 0 ? `${d}g ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const color = autoH >= 24 ? 'var(--green)' : autoH >= 6 ? 'var(--amber)' : 'var(--red)';
+    autoHtml = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <span style="font-size:12px;color:var(--text-2)">⏱ Autonomia stimata (consumo attuale)</span>
+      <span style="font-size:15px;font-weight:800;color:${color}">${label}</span>
+    </div>`;
+  }
+
+  // Bilancio cumulativo
+  const { pvKwh, loadKwh } = getCumulativeEnergy(24);
+  const cumHtml = (pvKwh > 0 || loadKwh > 0) ? `
+    <div style="display:flex;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="flex:1;text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--amber)">${pvKwh.toFixed(2)}<span style="font-size:10px;color:var(--text-2)"> kWh</span></div>
+        <div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">☀️ Prodotti oggi</div>
+      </div>
+      <div style="width:1px;background:var(--border)"></div>
+      <div style="flex:1;text-align:center">
+        <div style="font-size:18px;font-weight:800;color:var(--blue)">${loadKwh.toFixed(2)}<span style="font-size:10px;color:var(--text-2)"> kWh</span></div>
+        <div style="font-size:10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.4px;margin-top:2px">🏠 Consumati oggi</div>
+      </div>
+    </div>` : '';
+
   body.innerHTML = `
     <div class="energy-flow">
       <div class="energy-node">
@@ -740,6 +778,8 @@ function renderEnergy() {
         <span>🔋 Carica</span><span>🏠 Carichi</span>
       </div>
     </div>` : ''}
+    ${autoHtml}
+    ${cumHtml}
   `;
 }
 
@@ -853,6 +893,30 @@ window.disconnectAll = () => {
   mppt1.disconnect();  mppt2.disconnect();
   toast('Disconnesso');
 };
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+(function initTheme() {
+  const saved = localStorage.getItem('caribu_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = saved === 'dark' ? '🌙' : '☀️';
+})();
+
+window.toggleTheme = () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next    = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('caribu_theme', next);
+  const btn = document.getElementById('theme-toggle');
+  if (btn) btn.textContent = next === 'dark' ? '🌙' : '☀️';
+};
+
+// ── Maintenance helpers ───────────────────────────────────────────────────────
+window.maintMarkDone = (id) => {
+  markDone(id);
+  renderMaintenance('maint-body');
+  toast('✓ Manutenzione registrata');
+};
 window.clearSavedDevices = () => {
   ['ble_bms_id', 'ble_heater_id', 'ble_mppt1_id', 'ble_mppt2_id'].forEach(k => localStorage.removeItem(k));
   toast('Dispositivi dimenticati');
@@ -894,3 +958,14 @@ if ('serviceWorker' in navigator) {
 autoReconnect();
 startTracking();
 renderHistCharts();
+
+// Handle PWA shortcut URL params (?tab=bms, ?tab=heater, etc.)
+const _urlTab = new URLSearchParams(location.search).get('tab');
+if (_urlTab) window.switchTab(_urlTab);
+
+// Check maintenance alerts at startup (if notifications granted)
+if (Notification.permission === 'granted') {
+  checkMaintenanceAlerts((title, body) => {
+    import('./notifications.js').then(m => m.notify(title, body));
+  });
+}

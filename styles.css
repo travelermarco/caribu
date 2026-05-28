@@ -396,3 +396,48 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 .camp-date { font-size: 12px; color: var(--text-2); }
 .camp-notes { width: 100%; margin-top: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 12px; resize: vertical; min-height: 40px; outline: none; font-family: inherit; }
 .camp-notes:focus { border-color: rgba(245,158,11,.4); }
+
+/* ── Maintenance ──────────────────────────────────────────────────────────── */
+.maint-item { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.maint-item:last-child { border-bottom: none; }
+.maint-item.maint-overdue { background: rgba(248,113,113,.04); margin: 0 -16px; padding: 12px 16px; border-radius: 10px; }
+.maint-item.maint-soon    { background: rgba(245,158,11,.04); margin: 0 -16px; padding: 12px 16px; border-radius: 10px; }
+.maint-left  { display: flex; align-items: center; gap: 10px; }
+.maint-right { text-align: right; flex-shrink: 0; }
+.maint-emoji { font-size: 22px; line-height: 1; }
+.maint-name  { font-size: 13px; font-weight: 700; }
+.maint-sub   { font-size: 11px; color: var(--text-2); margin-top: 2px; }
+
+/* ── Theme toggle button ──────────────────────────────────────────────────── */
+#theme-toggle { background: none; border: none; cursor: pointer; font-size: 18px; padding: 2px 4px; opacity: .65; transition: opacity .2s, transform .2s; line-height: 1; }
+#theme-toggle:hover { opacity: 1; transform: scale(1.15); }
+
+/* ── Light theme ──────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg:       #F0F4F8;
+  --surface:  #FFFFFF;
+  --surface2: #E8ECF2;
+  --border:   rgba(0,0,0,0.09);
+  --border-s: rgba(0,0,0,0.05);
+  --glass-bg: rgba(240,244,248,0.88);
+  --text:     #111827;
+  --text-2:   #64748B;
+}
+
+[data-theme="light"] body::before {
+  background:
+    radial-gradient(ellipse 60% 40% at 20% -10%, rgba(245,158,11,0.09) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 30% at 80% 100%, rgba(56,189,248,0.06) 0%, transparent 60%);
+}
+
+[data-theme="light"] .card,
+[data-theme="light"] .stat-card { background: rgba(255,255,255,0.85); box-shadow: 0 2px 16px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,1); }
+[data-theme="light"] .weather-day { background: rgba(255,255,255,0.85); }
+[data-theme="light"] .camp-card   { background: rgba(255,255,255,0.85); }
+[data-theme="light"] #toast       { background: rgba(255,255,255,0.96); color: var(--text); border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .settings-row input { background: rgba(0,0,0,0.05); }
+[data-theme="light"] .camp-notes  { background: rgba(0,0,0,0.04); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); }
+[data-theme="light"] .energy-arrow { color: rgba(0,0,0,0.2); }
+[data-theme="light"] .tab-btn { color: var(--text-2); }
+[data-theme="light"] .tab-btn.active { color: var(--amber); }
