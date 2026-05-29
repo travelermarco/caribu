@@ -141,7 +141,7 @@ export function showLockScreen(onUnlock) {
 
   document.body.appendChild(overlay);
 
-  if (isBioSet()) setTimeout(tryBio, 300);
+  if (isBioSet()) setTimeout(tryBio, 80);
 }
 
 // ── PIN setup ──────────────────────────────────────────────────────────────────
