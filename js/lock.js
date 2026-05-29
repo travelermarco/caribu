@@ -127,19 +127,21 @@ export function showLockScreen(onUnlock) {
     shake('PIN errato');
   }, isBioSet());
 
-  const bioBtn = overlay.querySelector('.lock-bio-btn');
-  if (bioBtn) {
-    bioBtn.addEventListener('click', async () => {
-      const ok = await verifyBiometric();
-      if (ok) { overlay.remove(); onUnlock(); }
-      else {
-        const err = overlay.querySelector('#lock-err');
-        if (err) { err.textContent = 'Autenticazione fallita'; setTimeout(() => { err.textContent = ''; }, 1500); }
-      }
-    });
+  async function tryBio() {
+    const ok = await verifyBiometric();
+    if (ok) { overlay.remove(); onUnlock(); }
+    else {
+      const err = overlay.querySelector('#lock-err');
+      if (err) { err.textContent = 'Autenticazione fallita'; setTimeout(() => { err.textContent = ''; }, 1500); }
+    }
   }
 
+  const bioBtn = overlay.querySelector('.lock-bio-btn');
+  if (bioBtn) bioBtn.addEventListener('click', tryBio);
+
   document.body.appendChild(overlay);
+
+  if (isBioSet()) setTimeout(tryBio, 300);
 }
 
 // ── PIN setup ──────────────────────────────────────────────────────────────────
