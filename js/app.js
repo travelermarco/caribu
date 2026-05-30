@@ -906,6 +906,10 @@ function renderVictron() {
       <!-- ☀️ Pannello solare -->
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--amber);margin-bottom:6px">☀️ Pannello solare</div>
       <div style="text-align:center;margin-bottom:8px">${pvGauge}</div>
+      <div class="grid-2" style="margin-bottom:10px">
+        ${statCard('PV Tensione', 'var(--amber)', m.pvV, 'V')}
+        ${statCard('PV Corrente', 'var(--amber)', m.pvA, 'A')}
+      </div>
 
       <!-- 🔋 Batteria -->
       <div class="divider"></div>

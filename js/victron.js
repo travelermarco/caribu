@@ -260,9 +260,11 @@ export class VictronMPPT {
 
     this.data.pvW = pvWval !== null ? pvWval.toString() : '--';
 
-    // pvV/pvA non disponibili nell'advertisement BLE SmartSolar basic
-    this.data.pvV = '--';
-    this.data.pvA = '--';
+    // pvV: bits(48,8), 1V/unit (empiricamente verificato: pvVr=74→74V, pvW=173W, pvA=2.34A)
+    const pvVval = pvVr === NA8 ? null : pvVr;
+    this.data.pvV = pvVval !== null ? pvVval.toString() : '--';
+    this.data.pvA = (pvVval && pvWval && pvVval > 0)
+      ? (pvWval / pvVval).toFixed(1) : '--';
 
     this.data.yieldToday     = yTr    === NA9 ? '--' : (yTr    * 0.01).toFixed(2);
     this.data.yieldYesterday = yYr    === NA8 ? '--' : (yYr * 0.1).toFixed(1);
