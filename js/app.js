@@ -903,26 +903,36 @@ function renderVictron() {
         </div>
       </div>
       ${m.connected ? `
-      <div style="text-align:center;margin-bottom:10px">${pvGauge}</div>
-
+      <!-- ☀️ Pannello solare -->
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--amber);margin-bottom:6px">☀️ Pannello solare</div>
+      <div style="text-align:center;margin-bottom:8px">${pvGauge}</div>
       <div class="grid-2" style="margin-bottom:10px">
-        ${statCard('Batt. V', 'var(--green)', m.battV, 'V')}
-        ${statCard('Batt. A', 'var(--blue)',  m.battA, 'A')}
-        ${statCard('Batt. W', m.isCharging ? 'var(--green)' : 'var(--text-2)', m.battW, 'W')}
+        ${statCard('PV Tensione', 'var(--amber)', m.pvV, 'V')}
+        ${statCard('PV Corrente', 'var(--amber)', m.pvA, 'A')}
+      </div>
+
+      <!-- 🔋 Batteria -->
+      <div class="divider"></div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--blue);margin:8px 0 6px">🔋 Batteria</div>
+      <div class="grid-2" style="margin-bottom:10px">
+        ${statCard('Tensione', 'var(--blue)', m.battV, 'V')}
+        ${statCard('Corrente', 'var(--blue)', m.battA, 'A')}
+        ${statCard('Potenza', m.isCharging ? 'var(--green)' : 'var(--text-2)', (m.isCharging ? '+' : '') + m.battW, 'W')}
+        ${statCard('Stato', cs.color, m.cs, '')}
+      </div>
+
+      <!-- 📊 Rendimento -->
+      <div class="divider"></div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--green);margin:8px 0 6px">📊 Rendimento odierno</div>
+      <div class="grid-2" style="margin-bottom:6px">
+        ${statCard('Resa oggi', 'var(--green)', m.yieldToday, 'kWh')}
+        ${statCard('Resa ieri', 'var(--text-2)', m.yieldYesterday, 'kWh')}
         ${statCard('Max oggi', 'var(--amber)', m.maxPowerToday, 'W')}
       </div>
 
       <div class="divider"></div>
-      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Stato</span><span style="font-size:12px;font-weight:600;color:${cs.color}">${m.cs}</span></div>
-      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px">${m.error}</span></div>
-      <div class="divider"></div>
-      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Resa oggi</span><span style="font-size:13px;color:var(--amber);font-weight:700">${m.yieldToday} kWh</span></div>
-      <div class="card-row" style="padding:5px 0"><span style="font-size:12px;color:var(--text-2)">Resa ieri</span><span style="font-size:13px;font-weight:600">${m.yieldYesterday} kWh</span></div>
+      <div class="card-row" style="padding:4px 0"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px;color:${m.error === 'No error' ? 'var(--green)' : 'var(--red)'}">${m.error}</span></div>
       ${m.lastUpdate ? `<div style="font-size:10px;color:var(--text-2);margin-top:4px">Aggiornato: ${m.lastUpdate}</div>` : ''}
-      ${m.plainHex ? `<div style="background:var(--bg);border-radius:6px;padding:6px 8px;margin-top:8px;font-size:9px;font-family:monospace;color:var(--text-2);word-break:break-all">
-        HEX: ${m.plainHex}<br>
-        pvVr(b6)=${m.plainRaw?.pvVr} · yYr=${m.plainRaw?.yYr} · maxPWr=${m.plainRaw?.maxPWr}
-      </div>` : ''}
       <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="(${idx===1?'window.mppt1':'window.mppt2'}).disconnect();renderVictron()">Disconnetti</button>
       ` : `
       <button class="btn btn-primary btn-full" onclick="connectMPPT(${idx})">Connetti</button>
