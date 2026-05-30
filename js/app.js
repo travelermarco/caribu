@@ -775,7 +775,6 @@ function _mpptBattCard(key) {
     <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">~${socN}%</text>
     <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">${gaugeSub}</text>
   </svg>`;
-  const cs2 = csInfo(info.csNum);
   // Badge stato carica: unificato e chiaro per entrambe le batterie
   const csBadgeColor = (info.csNum === 3 || info.csNum === 4) ? 'green'
     : (info.csNum === 5 || info.csNum === 6) ? 'ok'
@@ -793,34 +792,47 @@ function _mpptBattCard(key) {
   const aColor = (info.csNum === 3 || info.csNum === 4) ? 'var(--green)' : 'var(--text-2)';
 
   // Tasso netto SOC e stima carichi
+  const isActiveChrg = info.csNum === 3 || info.csNum === 4;
   const rate = info.ratePerH;
-  const rateStr = rate !== null
-    ? `<div style="font-size:12px;font-weight:600;color:${rate > 0 ? 'var(--green)' : rate < -0.3 ? 'var(--amber)' : 'var(--text-2)'};margin-top:6px">
-        ${rate > 0.3 ? '↑' : rate < -0.3 ? '↓' : '≈'} ${Math.abs(rate).toFixed(1)}%/h
-        <span style="font-size:10px;font-weight:400;color:var(--text-2)">(tasso netto SOC)</span>
-       </div>` : '';
+  const rateStr = isActiveChrg
+    ? `<div style="font-size:12px;font-weight:600;color:var(--green);margin-top:6px">
+        ⚡ In carica rapida — trend non disponibile
+       </div>`
+    : rate !== null
+      ? `<div style="font-size:12px;font-weight:600;color:${rate > 0 ? 'var(--green)' : rate < -0.3 ? 'var(--amber)' : 'var(--text-2)'};margin-top:6px">
+          ${rate > 0.3 ? '↑' : rate < -0.3 ? '↓' : '≈'} ${Math.abs(rate).toFixed(1)}%/h
+          <span style="font-size:10px;font-weight:400;color:var(--text-2)">(tasso netto SOC)</span>
+         </div>`
+      : '';
 
   const dis = info.dischargeEst;
-  const disHtml = dis ? `
-    <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px;text-align:left">
-      <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Consumo stimato</div>
-      <div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap">
-        <span style="font-size:20px;font-weight:800;color:var(--amber)">~${dis.W} W</span>
-        <span style="font-size:13px;color:var(--text-2)">${dis.A} A</span>
-        ${dis.pvW > 0 ? `<span style="font-size:12px;color:var(--amber)">☀ ${dis.pvW} W solare</span>` : ''}
-      </div>
-      ${dis.netBattW !== null
-        ? `<div style="font-size:11px;color:${dis.netBattW >= 0 ? 'var(--green)' : 'var(--amber)'};margin-top:3px">
-             Batteria: ${dis.netBattW >= 0 ? '↑ +' : '↓ '}${dis.netBattW} W netti
-           </div>` : ''}
-      <div style="font-size:10px;margin-top:3px;color:${dis.reliable ? 'var(--green)' : 'var(--text-2)'}">
-        ${dis.reliable
-          ? `✓ ${dis.spanMin} min dati · ${dis.hasSolar ? 'solare + trend' : 'solo trend'}`
-          : dis.spanMin > 0
-            ? `⏳ ${dis.spanMin} min dati (ancora pochi — attendere)`
-            : `☀ Stima da solare (in attesa trend)`}
-      </div>
-    </div>` : '';
+  const disHtml = isActiveChrg
+    ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px;text-align:left">
+         <div style="font-size:11px;color:var(--text-2);margin-bottom:2px;text-transform:uppercase;letter-spacing:.4px">Consumo stimato</div>
+         <div style="font-size:11px;color:var(--text-2)">N/D durante carica Bulk/Absorption</div>
+         <div style="font-size:10px;color:var(--text-2);margin-top:2px">Il MPPT controlla la tensione — impossibile separare carica da carichi</div>
+       </div>`
+    : dis
+      ? `<div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px;text-align:left">
+           <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Consumo stimato</div>
+           <div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap">
+             <span style="font-size:20px;font-weight:800;color:var(--amber)">~${dis.W} W</span>
+             <span style="font-size:13px;color:var(--text-2)">${dis.A} A</span>
+             ${dis.pvW > 0 ? `<span style="font-size:12px;color:var(--amber)">☀ ${dis.pvW} W solare</span>` : ''}
+           </div>
+           ${dis.netBattW !== null
+             ? `<div style="font-size:11px;color:${dis.netBattW >= 0 ? 'var(--green)' : 'var(--amber)'};margin-top:3px">
+                  Batteria: ${dis.netBattW >= 0 ? '↑ +' : '↓ '}${dis.netBattW} W netti
+                </div>` : ''}
+           <div style="font-size:10px;margin-top:3px;color:${dis.reliable ? 'var(--green)' : 'var(--text-2)'}">
+             ${dis.reliable
+               ? `✓ ${dis.spanMin} min dati · ${dis.hasSolar ? 'solare + trend' : 'solo trend'}`
+               : dis.spanMin > 0
+                 ? `⏳ ${dis.spanMin} min dati (ancora pochi)`
+                 : `☀ Stima da solare (in attesa trend)`}
+           </div>
+         </div>`
+      : '';
 
   return `<div class="card" style="text-align:center">
     <div class="card-title">🔋 ${info.label}</div>
@@ -1183,18 +1195,24 @@ async function autoReconnect() {
 function _showReconnectBanner(saved) {
   const banner = document.getElementById('reconnect-banner');
   if (!banner) return;
+  const labels = { heater:'Riscaldatore', bms:'BMS', mppt1:'MPPT 1', mppt2:'MPPT 2' };
+  const icons  = { heater:'🔥', bms:'🔋', mppt1:'☀️', mppt2:'☀️' };
   const missing = [
-    saved.heater && !state.heater.connected && { key:'heater', icon:'🔥' },
-    saved.bms    && !state.bms.connected    && { key:'bms',    icon:'🔋' },
-    saved.mppt1  && !state.mppt1.connected  && { key:'mppt1',  icon:'☀️' },
-    saved.mppt2  && !state.mppt2.connected  && { key:'mppt2',  icon:'☀️' },
+    saved.heater && !state.heater.connected && 'heater',
+    saved.bms    && !state.bms.connected    && 'bms',
+    saved.mppt1  && !state.mppt1.connected  && 'mppt1',
+    saved.mppt2  && !state.mppt2.connected  && 'mppt2',
   ].filter(Boolean);
   if (!missing.length) { banner.style.display = 'none'; return; }
-
-  const icons = missing.map(m => m.icon).join(' ');
+  const chips = missing.map(k =>
+    `<button class="reconnect-chip" onclick="window.quickReconnect('${k}')">${icons[k]} ${labels[k]}</button>`
+  ).join('');
   banner.innerHTML = `
-    <div class="reconnect-label">📶 ${icons} Non connessi</div>
-    <button class="reconnect-chip reconnect-all" onclick="window.quickReconnectAll()">🔄 Riconnetti tutto</button>`;
+    <div class="reconnect-label">📶 Non connessi</div>
+    <div class="reconnect-btns">
+      ${chips}
+      ${missing.length > 1 ? `<button class="reconnect-chip reconnect-all" onclick="window.quickReconnectAll()">🔄 Tutto</button>` : ''}
+    </div>`;
   banner.style.display = '';
 }
 
