@@ -77,17 +77,21 @@ const bms    = new BMABLE   (d => {
 });
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
-  _pushPVChart();
+  try { _pushPVChart(); } catch (_) {}
   try { const v1 = parseFloat(state.mppt1.battV); if (v1 > 0 && state.mppt1.csNum !== 3) updateSocTrend('mppt1', _voltsToSOC(v1, state.mppt1.csNum, 'mppt1')); } catch (_) {}
-  renderVictron(); renderDash(); updateDots();
-  renderEnergy();
+  try { renderVictron(); } catch (e) { console.error('[mppt1 render] renderVictron:', e); }
+  try { renderDash();    } catch (e) { console.error('[mppt1 render] renderDash:', e); }
+  try { updateDots();    } catch (_) {}
+  try { renderEnergy();  } catch (e) { console.error('[mppt1 render] renderEnergy:', e); }
 });
 const mppt2  = new VictronMPPT('MPPT 2', d => {
   Object.assign(state.mppt2, d);
-  _pushPVChart();
+  try { _pushPVChart(); } catch (_) {}
   try { const v2 = parseFloat(state.mppt2.battV); if (v2 > 0 && state.mppt2.csNum !== 3) updateSocTrend('mppt2', _voltsToSOC(v2, state.mppt2.csNum, 'mppt2')); } catch (_) {}
-  renderVictron(); renderDash(); updateDots();
-  renderEnergy();
+  try { renderVictron(); } catch (e) { console.error('[mppt2 render] renderVictron:', e); }
+  try { renderDash();    } catch (e) { console.error('[mppt2 render] renderDash:', e); }
+  try { updateDots();    } catch (_) {}
+  try { renderEnergy();  } catch (e) { console.error('[mppt2 render] renderEnergy:', e); }
 });
 
 function _pushPVChart() {
