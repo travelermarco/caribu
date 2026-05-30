@@ -906,10 +906,6 @@ function renderVictron() {
       <!-- ☀️ Pannello solare -->
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--amber);margin-bottom:6px">☀️ Pannello solare</div>
       <div style="text-align:center;margin-bottom:8px">${pvGauge}</div>
-      <div class="grid-2" style="margin-bottom:10px">
-        ${statCard('PV Tensione', 'var(--amber)', m.pvV, 'V')}
-        ${statCard('PV Corrente', 'var(--amber)', m.pvA, 'A')}
-      </div>
 
       <!-- 🔋 Batteria -->
       <div class="divider"></div>
@@ -925,8 +921,8 @@ function renderVictron() {
       <div class="divider"></div>
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--green);margin:8px 0 6px">📊 Rendimento odierno</div>
       <div class="grid-2" style="margin-bottom:6px">
-        ${statCard('Resa oggi', 'var(--green)', m.yieldToday, 'kWh')}
-        ${statCard('Resa ieri', 'var(--text-2)', m.yieldYesterday, 'kWh')}
+        ${statCard('Resa oggi', 'var(--green)', m.yieldToday !== '--' ? Math.round(parseFloat(m.yieldToday) * 1000) : '--', 'Wh')}
+        ${statCard('Resa ieri', 'var(--text-2)', m.yieldYesterday !== '--' ? Math.round(parseFloat(m.yieldYesterday) * 1000) : '--', 'Wh')}
         ${statCard('Max oggi', 'var(--amber)', m.maxPowerToday, 'W')}
       </div>
 
