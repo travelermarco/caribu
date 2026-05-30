@@ -66,7 +66,8 @@ const bms    = new BMABLE   (d => {
   const snap = {
     soc:   parseInt(state.bms.soc) || null,
     battW: battWatts(state.bms.voltage, state.bms.current),
-    pvW:   (parseFloat(state.mppt1.pvW) || 0) + (parseFloat(state.mppt2.pvW) || 0),
+    pvW:   (state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0)
+         + (state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0),
     temp:  parseFloat(state.heater.currentTemp) || null,
   };
   pushSnapshot(snap);
@@ -92,8 +93,8 @@ const mppt2  = new VictronMPPT('MPPT 2', d => {
 });
 
 function _pushPVChart() {
-  const w1 = parseFloat(state.mppt1.pvW) || 0;
-  const w2 = parseFloat(state.mppt2.pvW) || 0;
+  const w1 = state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0;
+  const w2 = state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0;
   if (w1 + w2 > 0 || state.mppt1.connected || state.mppt2.connected) {
     chartPVPower.push(w1 + w2);
   }
@@ -423,8 +424,8 @@ function renderDash() {
 
   // Solar card
   const totalW = (() => {
-    const w1 = parseFloat(state.mppt1.pvW) || 0;
-    const w2 = parseFloat(state.mppt2.pvW) || 0;
+    const w1 = state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0;
+    const w2 = state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0;
     return (w1 + w2) > 0 ? (w1 + w2).toFixed(0) : '--';
   })();
   const yT = (() => {
@@ -540,9 +541,24 @@ function renderHeater() {
 function renderBMS() {
   const bs = state.bms;
   if (!bs.connected) {
-    el('bms-body').innerHTML = `<div class="connect-placeholder"><div class="icon">🔋</div><p>Connetti il BMS XiaoXiang via Bluetooth</p><button class="btn btn-primary btn-full" onclick="connectBMS()">Connetti</button></div>`;
+    if (window._bmsShowMPPT) {
+      const c1 = _mpptBattCard('mppt1');
+      const c2 = _mpptBattCard('mppt2');
+      el('bms-body').innerHTML = `
+        ${c1 || c2 ? c1 + c2 : '<div class="connect-placeholder"><div class="icon">📡</div><p>Nessun MPPT connesso — connetti prima il regolatore di carica</p></div>'}
+        <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="window._bmsShowMPPT=false;renderBMS()">← Torna a Connetti BMS</button>`;
+    } else {
+      el('bms-body').innerHTML = `
+        <div class="connect-placeholder">
+          <div class="icon">🔋</div>
+          <p>Connetti il BMS XiaoXiang via Bluetooth</p>
+          <button class="btn btn-primary btn-full" onclick="connectBMS()">Connetti</button>
+          <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window._bmsShowMPPT=true;renderBMS()">📊 Stima da MPPT</button>
+        </div>`;
+    }
     return;
   }
+  window._bmsShowMPPT = false;
   const socN = parseInt(bs.soc) || 0;
   const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
   const cs   = chargeStatus(bs.current);
@@ -784,8 +800,6 @@ function renderVictron() {
   el('victron-body').innerHTML = `
     <div class="alert alert-warn">ℹ️ Chiave: VictronConnect → dispositivo → ⋮ → <strong>Show encryption data</strong></div>
     <div class="alert alert-warn" style="font-size:11px">Su Android potrebbe servire abilitare <strong>chrome://flags/#enable-experimental-web-platform-features</strong></div>
-    ${_mpptBattCard('mppt1')}
-    ${_mpptBattCard('mppt2')}
     ${(state.mppt1.connected || state.mppt2.connected) ? `
     <div class="card">
       <div class="card-title">Potenza solare totale</div>
@@ -878,7 +892,8 @@ function renderSettings() {
 
 // ── Energy balance ────────────────────────────────────────────────────────────
 function renderEnergy() {
-  const solarW = (parseFloat(state.mppt1.pvW) || 0) + (parseFloat(state.mppt2.pvW) || 0);
+  const solarW = (state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0)
+              + (state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0);
   const battW  = battWatts(state.bms.voltage, state.bms.current) ?? 0;
   const loadW  = Math.max(0, solarW - battW);
   const card   = el('energy-balance-card');
