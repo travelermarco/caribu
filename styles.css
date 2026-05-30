@@ -658,9 +658,11 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 .doc-modal-box {
   background: var(--surface);
   border-radius: 24px 24px 0 0;
-  padding: 24px 20px 44px;
-  width: 100%; max-width: 420px;
+  padding: 24px 20px;
+  padding-bottom: max(calc(env(safe-area-inset-bottom, 0px) + 20px), 32px);
+  width: 100%; max-width: 480px;
   border-top: 1px solid var(--border);
+  box-sizing: border-box;
 }
 .doc-cat-grid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
@@ -670,9 +672,14 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
   gap: 6px; padding: 16px 8px;
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: 16px; cursor: pointer; color: var(--text);
-  font-size: 26px; font-weight: 600;
+  font-size: 30px; font-weight: 600;
+  line-height: 1;
   transition: background .15s, border-color .15s, transform .1s;
   -webkit-tap-highlight-color: transparent;
+}
+.doc-cat-btn span {
+  font-size: 12px; font-weight: 500; line-height: 1.2; text-align: center;
+  color: var(--text-2);
 }
 .doc-cat-btn:active { transform: scale(.93); background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); }
 [data-theme="light"] .doc-modal-box { background: var(--surface); }
