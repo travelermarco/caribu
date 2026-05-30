@@ -336,23 +336,41 @@ function _socRate(key) {
   return (arr[arr.length - 1].soc - arr[0].soc) / (span / 3600000); // %/h
 }
 
-function _estimateDischargeW(key) {
-  const rate = _socRate(key);
-  if (rate === null || rate >= 0) return null; // non sta scaricando
-  const m = key === 'mppt1' ? state.mppt1 : state.mppt2;
-  const battV  = parseFloat(m.battV) || 0;
-  const pvW    = parseFloat(m.pvW)   || 0;
-  const cap    = BATT_PROFILE[key].capacity;
-  const disAh  = Math.abs(rate) * cap / 100;  // Ah/h
-  const disW   = disAh * battV;
-  const arr    = _socTrend[key];
-  const span   = arr[arr.length - 1].ts - arr[0].ts;
+function _estimateLoadW(key) {
+  const m    = key === 'mppt1' ? state.mppt1 : state.mppt2;
+  const battV = parseFloat(m.battV) || 0;
+  const pvW   = parseFloat(m.pvW)   || 0;
+  const cap   = BATT_PROFILE[key].capacity;
+  const rate  = _socRate(key);                           // %/h
+  const arr   = _socTrend[key];
+  const spanMin = arr.length > 1
+    ? Math.round((arr[arr.length-1].ts - arr[0].ts) / 60000) : 0;
+
+  // Potenza netta batteria: positiva = carica, negativa = scarica
+  // netBattW = (rate%/h ÷ 100) × capacity_Ah × battV
+  const netBattW = rate !== null ? (rate / 100) * cap * battV : null;
+
+  // Stima carichi: solare − flusso_netto_batteria
+  // Se batteria carica (netBattW>0): carichi=pvW−netBattW  (il resto del solare va a carichi)
+  // Se batteria scarica (netBattW<0): carichi=pvW+|netBattW| (solare+batteria→carichi)
+  // Se nessun trend: se c'è solare, stima minima = pvW (battery stabile)
+  let loadW = null;
+  if (netBattW !== null) loadW = Math.max(0, pvW - netBattW);
+  else if (pvW > 5) loadW = pvW; // stima minima senza dati trend
+
+  if (loadW === null) return null;
+
+  const hasSolar = pvW > 5;
+  const reliable = spanMin >= 2 && rate !== null;
   return {
-    W: Math.round(disW),
-    A: disAh.toFixed(1),
-    rate,                            // negativo = scarica
-    reliable: pvW < 5,              // stima affidabile solo senza solare
-    spanMin: Math.round(span / 60000),
+    W: Math.round(loadW),
+    A: battV > 0 ? (loadW / battV).toFixed(1) : '--',
+    rate,
+    netBattW: netBattW !== null ? Math.round(netBattW) : null,
+    pvW: Math.round(pvW),
+    hasSolar,
+    reliable,
+    spanMin,
   };
 }
 
@@ -395,7 +413,7 @@ function battInfoForKey(key) {
     pvW: m.pvW, yieldToday: m.yieldToday, yieldYesterday: m.yieldYesterday,
     remAh: remAh !== null ? remAh.toFixed(1) : '--',
     eta: _calcETA(key, soc, m.csNum, m.battA),
-    dischargeEst: _estimateDischargeW(key),
+    dischargeEst: _estimateLoadW(key),
     ratePerH: _socRate(key),
     label: BATT_PROFILE[key].label,
     capacity: BATT_PROFILE[key].capacity,
@@ -446,17 +464,18 @@ function renderDash() {
         const b2 = battInfoForKey('mppt2');
         const sN = b1.soc;
         const sColor = sN !== null ? (sN >= 50 ? 'var(--green)' : sN >= 20 ? 'var(--amber)' : 'var(--red)') : 'var(--green)';
-        const eta1str = b1.eta && _fmtH(b1.eta.hours) ? `<div style="font-size:11px;color:var(--text-2)">⏱ ${_fmtH(b1.eta.hours)} ${b1.eta.label}</div>` : '';
-        const piomboLine = b2 ? `<div style="font-size:11px;color:var(--text-2);margin-top:3px">🔋 Piombo: ${b2.soc !== null ? '~' + b2.soc + '%' : 'In carica'} · ${b2.v.toFixed(2)} V</div>` : '';
+        const eta1str = b1.eta && _fmtH(b1.eta.hours) ? `<div style="font-size:11px;color:var(--text-2)">⏱ ~${_fmtH(b1.eta.hours)} ${b1.eta.label}</div>` : '';
+        const piomboLine = b2
+          ? `<div style="font-size:11px;color:var(--text-2);margin-top:3px;border-top:1px solid var(--border);padding-top:3px">
+               🪫 Piombo ~${b2.soc !== null ? b2.soc + '%' : '?'} · ${b2.v.toFixed(2)} V${b2.inBulk ? ' ⚡' : ''}
+             </div>` : '';
         return sN !== null
           ? `<div class="big-num" style="color:${sColor};font-size:36px">~${sN}<span class="big-unit" style="font-size:13px">%</span></div>
-             <div class="stat-sub" style="margin-bottom:2px">${b1.v.toFixed(2)} V · ${b1.cs}</div>
-             ${eta1str}${piomboLine}
-             <div style="font-size:10px;color:var(--text-2);margin-top:2px">stima MPPT 1 · LiFePO4</div>`
+             <div style="font-size:11px;color:var(--text-2)">🔋 Litio · ${b1.v.toFixed(2)} V · ${b1.cs}</div>
+             ${eta1str}${piomboLine}`
           : `<div class="big-num" style="color:var(--green);font-size:24px">In carica ⚡</div>
-             <div class="stat-sub">${b1.v.toFixed(2)} V · ${b1.cs}</div>
-             ${piomboLine}
-             <div style="font-size:10px;color:var(--text-2)">stima MPPT 1</div>`;
+             <div style="font-size:11px;color:var(--text-2)">🔋 Litio · ${b1.v.toFixed(2)} V · ${b1.cs}</div>
+             ${piomboLine}`;
       })();
 
   // Solar card
@@ -748,7 +767,7 @@ function _mpptBattCard(key) {
     <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">${gaugeSub}</text>
   </svg>`;
   const cs2    = csInfo(info.csNum);
-  const etaStr = info.eta && _fmtH(info.eta.hours) ? `<span class="badge badge-grey">⏱ ${_fmtH(info.eta.hours)} ${info.eta.label}</span>` : '';
+  const etaStr = info.eta && _fmtH(info.eta.hours) ? `<span class="badge badge-grey">⏱ ~${_fmtH(info.eta.hours)} ${info.eta.label} (stima)</span>` : '';
   const aNum   = parseFloat(info.battA);
   const wNum   = parseFloat(info.mpptW);
   const aColor = (info.csNum === 3 || info.csNum === 4) ? 'var(--green)' : 'var(--text-2)';
@@ -765,13 +784,22 @@ function _mpptBattCard(key) {
   const disHtml = dis ? `
     <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px;text-align:left">
       <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Consumo stimato</div>
-      <div style="display:flex;gap:16px;align-items:baseline">
+      <div style="display:flex;gap:16px;align-items:baseline;flex-wrap:wrap">
         <span style="font-size:20px;font-weight:800;color:var(--amber)">~${dis.W} W</span>
-        <span style="font-size:13px;color:var(--text-2)">${dis.A} A · ${dis.spanMin} min di dati</span>
+        <span style="font-size:13px;color:var(--text-2)">${dis.A} A</span>
+        ${dis.pvW > 0 ? `<span style="font-size:12px;color:var(--amber)">☀ ${dis.pvW} W solare</span>` : ''}
       </div>
-      ${dis.reliable
-        ? `<div style="font-size:10px;color:var(--green);margin-top:2px">✓ Stima affidabile (solare assente)</div>`
-        : `<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠ Solare attivo — stima approssimativa</div>`}
+      ${dis.netBattW !== null
+        ? `<div style="font-size:11px;color:${dis.netBattW >= 0 ? 'var(--green)' : 'var(--amber)'};margin-top:3px">
+             Batteria: ${dis.netBattW >= 0 ? '↑ +' : '↓ '}${dis.netBattW} W netti
+           </div>` : ''}
+      <div style="font-size:10px;margin-top:3px;color:${dis.reliable ? 'var(--green)' : 'var(--text-2)'}">
+        ${dis.reliable
+          ? `✓ ${dis.spanMin} min dati · ${dis.hasSolar ? 'solare + trend' : 'solo trend'}`
+          : dis.spanMin > 0
+            ? `⏳ ${dis.spanMin} min dati (ancora pochi — attendere)`
+            : `☀ Stima da solare (in attesa trend)`}
+      </div>
     </div>` : '';
 
   return `<div class="card" style="text-align:center">
