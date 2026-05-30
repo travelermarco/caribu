@@ -78,7 +78,11 @@ const bms    = new BMABLE   (d => {
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
   try { _pushPVChart(); } catch (_) {}
-  try { const v1 = parseFloat(state.mppt1.battV); if (v1 > 0 && state.mppt1.csNum !== 3) updateSocTrend('mppt1', _voltsToSOC(v1, state.mppt1.csNum, 'mppt1')); } catch (_) {}
+  try {
+    const v1 = parseFloat(state.mppt1.battV), cs1 = state.mppt1.csNum;
+    if (cs1 === 3 || cs1 === 4) { _socTrend.mppt1 = []; }           // in carica: azzerato
+    else if (v1 > 0) updateSocTrend('mppt1', _voltsToSOC(v1, cs1, 'mppt1'));
+  } catch (_) {}
   try { renderVictron(); } catch (e) { console.error('[mppt1 render] renderVictron:', e); }
   try { renderDash();    } catch (e) { console.error('[mppt1 render] renderDash:', e); }
   try { updateDots();    } catch (_) {}
@@ -87,7 +91,11 @@ const mppt1  = new VictronMPPT('MPPT 1', d => {
 const mppt2  = new VictronMPPT('MPPT 2', d => {
   Object.assign(state.mppt2, d);
   try { _pushPVChart(); } catch (_) {}
-  try { const v2 = parseFloat(state.mppt2.battV); if (v2 > 0 && state.mppt2.csNum !== 3) updateSocTrend('mppt2', _voltsToSOC(v2, state.mppt2.csNum, 'mppt2')); } catch (_) {}
+  try {
+    const v2 = parseFloat(state.mppt2.battV), cs2 = state.mppt2.csNum;
+    if (cs2 === 3 || cs2 === 4) { _socTrend.mppt2 = []; }
+    else if (v2 > 0) updateSocTrend('mppt2', _voltsToSOC(v2, cs2, 'mppt2'));
+  } catch (_) {}
   try { renderVictron(); } catch (e) { console.error('[mppt2 render] renderVictron:', e); }
   try { renderDash();    } catch (e) { console.error('[mppt2 render] renderDash:', e); }
   try { updateDots();    } catch (_) {}
@@ -337,38 +345,39 @@ function _socRate(key) {
 }
 
 function _estimateLoadW(key) {
-  const m    = key === 'mppt1' ? state.mppt1 : state.mppt2;
-  const battV = parseFloat(m.battV) || 0;
-  const pvW   = parseFloat(m.pvW)   || 0;
-  const cap   = BATT_PROFILE[key].capacity;
-  const rate  = _socRate(key);                           // %/h
-  const arr   = _socTrend[key];
-  const spanMin = arr.length > 1
-    ? Math.round((arr[arr.length-1].ts - arr[0].ts) / 60000) : 0;
+  const m     = key === 'mppt1' ? state.mppt1 : state.mppt2;
+  const csNum = m.csNum;
+  // In Bulk e Absorption il MPPT controlla la tensione; battA include già i carichi
+  // → separare carico da carica è impossibile senza shunt → non mostrare stima
+  if (csNum === 3 || csNum === 4) return null;
 
-  // Potenza netta batteria: positiva = carica, negativa = scarica
-  // netBattW = (rate%/h ÷ 100) × capacity_Ah × battV
+  const battV   = parseFloat(m.battV) || 0;
+  const pvW     = parseFloat(m.pvW)   || 0;
+  const cap     = BATT_PROFILE[key].capacity;
+  const rate    = _socRate(key);
+  const arr     = _socTrend[key];
+  const spanMin = arr.length > 1 ? Math.round((arr[arr.length-1].ts - arr[0].ts) / 60000) : 0;
+
+  // netBattW = flusso netto sulla batteria (positivo=carica, negativo=scarica)
   const netBattW = rate !== null ? (rate / 100) * cap * battV : null;
 
-  // Stima carichi: solare − flusso_netto_batteria
-  // Se batteria carica (netBattW>0): carichi=pvW−netBattW  (il resto del solare va a carichi)
-  // Se batteria scarica (netBattW<0): carichi=pvW+|netBattW| (solare+batteria→carichi)
-  // Se nessun trend: se c'è solare, stima minima = pvW (battery stabile)
+  // In Float (csNum=5/6): pvW è quasi tutto carichi (trickle trascurabile)
+  // In Off (csNum=0/1): pvW=0, carichi = scarica dalla batteria
   let loadW = null;
   if (netBattW !== null) loadW = Math.max(0, pvW - netBattW);
-  else if (pvW > 5) loadW = pvW; // stima minima senza dati trend
+  else if (pvW > 5 && (csNum === 5 || csNum === 6)) loadW = pvW; // Float: pvW ≈ carichi
 
   if (loadW === null) return null;
 
-  const hasSolar = pvW > 5;
-  const reliable = spanMin >= 2 && rate !== null;
+  // Stima affidabile: almeno 2 min dati + solare basso (senza carica attiva che distorce)
+  const reliable = spanMin >= 2 && rate !== null && pvW < 20;
   return {
     W: Math.round(loadW),
     A: battV > 0 ? (loadW / battV).toFixed(1) : '--',
     rate,
     netBattW: netBattW !== null ? Math.round(netBattW) : null,
     pvW: Math.round(pvW),
-    hasSolar,
+    hasSolar: pvW > 5,
     reliable,
     spanMin,
   };
@@ -766,7 +775,18 @@ function _mpptBattCard(key) {
     <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">~${socN}%</text>
     <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">${gaugeSub}</text>
   </svg>`;
-  const cs2    = csInfo(info.csNum);
+  const cs2 = csInfo(info.csNum);
+  // Badge stato carica: unificato e chiaro per entrambe le batterie
+  const csBadgeColor = (info.csNum === 3 || info.csNum === 4) ? 'green'
+    : (info.csNum === 5 || info.csNum === 6) ? 'ok'
+    : (info.csNum === 2) ? 'err'
+    : 'grey';
+  const csBadgeLabel = info.csNum === 3 ? '⚡ Bulk — In carica'
+    : info.csNum === 4 ? '⚡ Absorption — In carica'
+    : info.csNum === 5 ? '≈ Float'
+    : info.csNum === 6 ? '≈ Storage'
+    : info.csNum === 0 ? 'Off'
+    : info.cs || '--';
   const etaStr = info.eta && _fmtH(info.eta.hours) ? `<span class="badge badge-grey">⏱ ~${_fmtH(info.eta.hours)} ${info.eta.label} (stima)</span>` : '';
   const aNum   = parseFloat(info.battA);
   const wNum   = parseFloat(info.mpptW);
@@ -806,8 +826,7 @@ function _mpptBattCard(key) {
     <div class="card-title">🔋 ${info.label}</div>
     ${gaugeHtml}
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
-      ${badge(cs2.dot || 'grey', info.cs)}
-      ${info.inBulk ? `<span class="badge badge-green"><span class="badge-dot"></span>In carica</span>` : ''}
+      ${badge(csBadgeColor, csBadgeLabel)}
       ${etaStr}
     </div>
     ${rateStr}
