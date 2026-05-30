@@ -78,16 +78,14 @@ const bms    = new BMABLE   (d => {
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
   _pushPVChart();
-  const _v1 = parseFloat(state.mppt1.battV);
-  if (_v1 > 0) updateSocTrend('mppt1', _voltsToSOC(_v1, state.mppt1.csNum, 'mppt1'));
+  try { const v1 = parseFloat(state.mppt1.battV); if (v1 > 0) updateSocTrend('mppt1', _voltsToSOC(v1, state.mppt1.csNum, 'mppt1')); } catch (_) {}
   renderVictron(); renderDash(); updateDots();
   renderEnergy();
 });
 const mppt2  = new VictronMPPT('MPPT 2', d => {
   Object.assign(state.mppt2, d);
   _pushPVChart();
-  const _v2 = parseFloat(state.mppt2.battV);
-  if (_v2 > 0) updateSocTrend('mppt2', _voltsToSOC(_v2, state.mppt2.csNum, 'mppt2'));
+  try { const v2 = parseFloat(state.mppt2.battV); if (v2 > 0) updateSocTrend('mppt2', _voltsToSOC(v2, state.mppt2.csNum, 'mppt2')); } catch (_) {}
   renderVictron(); renderDash(); updateDots();
   renderEnergy();
 });
@@ -894,16 +892,17 @@ function renderSettings() {
 function renderEnergy() {
   const solarW = (state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0)
               + (state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0);
-  const battW  = battWatts(state.bms.voltage, state.bms.current) ?? 0;
-  const loadW  = Math.max(0, solarW - battW);
+  const hasBMS = state.bms.connected;
+  const battW  = hasBMS ? (battWatts(state.bms.voltage, state.bms.current) ?? 0) : null;
+  const loadW  = battW !== null ? Math.max(0, solarW - battW) : null;
   const card   = el('energy-balance-card');
   const body   = el('energy-balance-body');
   if (!card || !body) return;
-  const hasData = (state.mppt1.connected || state.mppt2.connected) || state.bms.connected;
+  const hasData = (state.mppt1.connected || state.mppt2.connected) || hasBMS;
   card.style.display = hasData ? '' : 'none';
   if (!hasData) return;
-  const battColor = battW >= 0 ? 'var(--green)' : 'var(--amber)';
-  const battLabel = battW >= 0 ? '↑ carica' : '↓ scarica';
+  const battColor = battW !== null ? (battW >= 0 ? 'var(--green)' : 'var(--amber)') : 'var(--text-2)';
+  const battLabel = battW !== null ? (battW >= 0 ? '↑ carica' : '↓ scarica') : 'BMS non connesso';
 
   // Autonomia off-grid
   const autoH = estimateAutonomy(state);
@@ -946,17 +945,17 @@ function renderEnergy() {
       <div class="energy-arrow">→</div>
       <div class="energy-node">
         <div class="energy-icon">🔋</div>
-        <div class="energy-val" style="color:${battColor}">${battW >= 0 ? '+' : ''}${battW.toFixed(0)}<span class="energy-unit">W</span></div>
+        <div class="energy-val" style="color:${battColor}">${battW !== null ? (battW >= 0 ? '+' : '') + battW.toFixed(0) : '–'}<span class="energy-unit">${battW !== null ? 'W' : ''}</span></div>
         <div class="energy-lbl">${battLabel}</div>
       </div>
       <div class="energy-arrow">→</div>
       <div class="energy-node">
         <div class="energy-icon">🏠</div>
-        <div class="energy-val">${loadW.toFixed(0)}<span class="energy-unit">W</span></div>
+        <div class="energy-val">${loadW !== null ? loadW.toFixed(0) : '–'}<span class="energy-unit">${loadW !== null ? 'W' : ''}</span></div>
         <div class="energy-lbl">Carichi</div>
       </div>
     </div>
-    ${solarW > 0 ? `
+    ${solarW > 0 && battW !== null ? `
     <div style="margin-top:10px">
       <div style="height:6px;border-radius:3px;background:var(--surface2);overflow:hidden;display:flex">
         <div style="width:${Math.min(100, (battW / Math.max(solarW, 1)) * 100).toFixed(0)}%;background:var(--green);border-radius:3px;transition:width .5s"></div>
@@ -1144,6 +1143,7 @@ window.connectHeater = async () => {
   const ok = await heater.connect();
   if (!ok) updateDots();
 };
+window.renderBMS     = () => renderBMS();
 window.connectBMS = async () => {
   setDotConnecting('dot-bms');
   const ok = await bms.connect();
