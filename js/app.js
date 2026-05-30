@@ -353,7 +353,7 @@ function _fmtH(h) {
 
 function battInfoForKey(key) {
   const m = key === 'mppt1' ? state.mppt1 : state.mppt2;
-  if (!m.connected || parseFloat(m.battV) <= 0) return null;
+  if (!m.connected || !(parseFloat(m.battV) > 0)) return null;
   const v      = parseFloat(m.battV);
   const soc    = _voltsToSOC(v, m.csNum, key);   // sempre un numero (mai null)
   const inBulk = m.csNum === 3;
@@ -549,18 +549,29 @@ function renderBMS() {
   const bs = state.bms;
   if (!bs.connected) {
     if (window._bmsShowMPPT) {
-      const c1 = _mpptBattCard('mppt1');
-      const c2 = _mpptBattCard('mppt2');
+      const _mpptSlot = (key, idx, label) => {
+        const card = _mpptBattCard(key);
+        if (card) return card;
+        return `<div class="card" style="text-align:center">
+          <div class="card-title">🔋 ${label}</div>
+          <div class="connect-placeholder" style="padding:16px 0">
+            <div class="icon" style="font-size:28px;opacity:.4">📡</div>
+            <p style="font-size:13px;color:var(--text-2);margin:8px 0">MPPT ${idx} non connesso</p>
+            <button class="btn btn-primary" onclick="connectMPPT(${idx})">Connetti MPPT ${idx}</button>
+          </div>
+        </div>`;
+      };
       el('bms-body').innerHTML = `
-        ${c1 || c2 ? c1 + c2 : '<div class="connect-placeholder"><div class="icon">📡</div><p>Nessun MPPT connesso — connetti prima il regolatore di carica</p></div>'}
-        <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="window._bmsShowMPPT=false;renderBMS()">← Torna a Connetti BMS</button>`;
+        ${_mpptSlot('mppt1', 1, 'LiFePO4 100Ah')}
+        ${_mpptSlot('mppt2', 2, 'Piombo 70Ah')}
+        <button class="btn btn-ghost btn-full" style="margin-top:6px" onclick="window._bmsShowMPPT=false;window.renderBMS()">← Torna a Connetti BMS</button>`;
     } else {
       el('bms-body').innerHTML = `
         <div class="connect-placeholder">
           <div class="icon">🔋</div>
           <p>Connetti il BMS XiaoXiang via Bluetooth</p>
           <button class="btn btn-primary btn-full" onclick="connectBMS()">Connetti</button>
-          <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window._bmsShowMPPT=true;renderBMS()">📊 Stima da MPPT</button>
+          <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window._bmsShowMPPT=true;window.renderBMS()">📊 Stima da MPPT</button>
         </div>`;
     }
     return;
