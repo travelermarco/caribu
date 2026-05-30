@@ -324,14 +324,17 @@ function updateSocTrend(key, soc) {
 }
 
 function _calcETA(key, soc, csNum, battAStr) {
-  if (soc === null) return null;
   const cap = BATT_PROFILE[key].capacity;
   const battA = parseFloat(battAStr);
   // Carica: MPPT in Bulk/Absorption con corrente significativa
   if ((csNum === 3 || csNum === 4) && !isNaN(battA) && battA > 1.0) {
-    const remAh = cap * (1 - soc / 100);
+    // Se il SOC è null (Bulk = tensione gonfiata), usa l'ultimo valore noto dal trend
+    const arr = _socTrend[key];
+    const socEst = soc ?? (arr.length > 0 ? arr[arr.length - 1].soc : 50);
+    const remAh = cap * (1 - socEst / 100);
     return { label: 'a pieno', hours: remAh > 0.5 ? remAh / battA : 0 };
   }
+  if (soc === null) return null;
   // Scarico: stima dal tasso di calo SOC storico
   const arr = _socTrend[key];
   if (arr.length >= 5) {
@@ -353,10 +356,21 @@ function _fmtH(h) {
 function battInfoForKey(key) {
   const m = key === 'mppt1' ? state.mppt1 : state.mppt2;
   if (!m.connected || parseFloat(m.battV) <= 0) return null;
-  const v = parseFloat(m.battV);
-  const soc = _voltsToSOC(v, m.csNum, key);
+  const v   = parseFloat(m.battV);
+  const socRaw = _voltsToSOC(v, m.csNum, key);
+  // In Bulk la tensione è gonfiata: usa l'ultimo SOC noto dal trend come riferimento
+  const tArr = _socTrend[key];
+  const soc  = socRaw ?? (tArr.length > 0 ? tArr[tArr.length - 1].soc : null);
+  const inBulk = socRaw === null;
+  const battA  = parseFloat(m.battA) || 0;
+  const mpptW  = v * battA;
+  const remAh  = soc !== null ? BATT_PROFILE[key].capacity * soc / 100 : null;
   return {
-    v, csNum: m.csNum, cs: m.cs, soc,
+    v, csNum: m.csNum, cs: m.cs, soc, inBulk,
+    battA: battA > 0 ? battA.toFixed(1) : '--',
+    mpptW: mpptW > 0.5 ? mpptW.toFixed(0) : '--',
+    pvW: m.pvW, yieldToday: m.yieldToday, yieldYesterday: m.yieldYesterday,
+    remAh: remAh !== null ? remAh.toFixed(1) : '--',
     eta: _calcETA(key, soc, m.csNum, m.battA),
     label: BATT_PROFILE[key].label,
     capacity: BATT_PROFILE[key].capacity,
@@ -683,36 +697,45 @@ function renderBMS() {
 function _mpptBattCard(key) {
   const info = battInfoForKey(key);
   if (!info) return '';
-  const socN = info.soc ?? 0;
-  const inCharge = info.soc === null;
+  const socN     = info.soc ?? 0;
   const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
   const r = 70, cx = 90, cy = 95, sw = 14;
   const angle = (socN / 100) * 180;
-  const arcX = cx + r * Math.cos(Math.PI - angle * Math.PI / 180);
-  const arcY = cy - r * Math.sin(angle * Math.PI / 180);
-  const la = angle > 180 ? 1 : 0;
-  const gaugeHtml = inCharge
-    ? `<div style="font-size:28px;font-weight:800;color:var(--green);padding:14px 0">In carica ⚡</div>`
-    : `<svg viewBox="0 0 180 110" style="width:180px;height:110px">
-        <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
-        ${socN > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${socColor}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
-        <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">~${socN}%</text>
-        <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">SOC stimato</text>
-      </svg>`;
-  const cs2 = csInfo(info.csNum);
+  const arcX  = cx + r * Math.cos(Math.PI - angle * Math.PI / 180);
+  const arcY  = cy - r * Math.sin(angle * Math.PI / 180);
+  const la    = angle > 180 ? 1 : 0;
+  const gaugeSub = info.inBulk ? 'pre-carica' : 'SOC stimato';
+  const gaugeHtml = `<svg viewBox="0 0 180 110" style="width:180px;height:110px">
+    <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
+    ${socN > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${socColor}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
+    <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">~${socN}%</text>
+    <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">${gaugeSub}</text>
+  </svg>`;
+  const cs2    = csInfo(info.csNum);
   const etaStr = info.eta && _fmtH(info.eta.hours) ? `<span class="badge badge-grey">⏱ ${_fmtH(info.eta.hours)} ${info.eta.label}</span>` : '';
+  const aNum   = parseFloat(info.battA);
+  const wNum   = parseFloat(info.mpptW);
+  const aColor = (info.csNum === 3 || info.csNum === 4) ? 'var(--green)' : 'var(--text-2)';
   return `<div class="card" style="text-align:center">
     <div class="card-title">🔋 ${info.label}</div>
     ${gaugeHtml}
     <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
       ${badge(cs2.dot || 'grey', info.cs)}
+      ${info.inBulk ? `<span class="badge badge-green"><span class="badge-dot"></span>In carica</span>` : ''}
       ${etaStr}
     </div>
     <div class="grid-2" style="margin-top:10px">
       ${statCard('Tensione', 'var(--blue)', info.v.toFixed(2), 'V')}
-      ${statCard('Capacità', 'var(--text-2)', info.capacity, 'Ah')}
+      ${!isNaN(aNum) && aNum > 0 ? statCard('Corrente', aColor, info.battA, 'A') : ''}
+      ${!isNaN(wNum) && wNum > 0 ? statCard('Potenza', 'var(--green)', '+' + info.mpptW, 'W') : ''}
+      ${statCard('Cap. residua', socColor, info.remAh, 'Ah')}
+      ${statCard('Cap. nominale', 'var(--text-2)', info.capacity, 'Ah')}
+      ${info.pvW && info.pvW !== '--' ? statCard('Solare', 'var(--amber)', info.pvW, 'W') : ''}
+      ${info.yieldToday && info.yieldToday !== '--' ? statCard('Resa oggi', 'var(--amber)', info.yieldToday, 'kWh') : ''}
     </div>
-    <div style="font-size:10px;color:var(--text-2);margin-top:6px">Stima da tensione · ±5% · imprecisa in fase Bulk</div>
+    <div style="font-size:10px;color:var(--text-2);margin-top:6px">
+      Stima da tensione MPPT · ±5%${info.inBulk ? ' · % da ultima lettura pre-Bulk' : ''}
+    </div>
   </div>`;
 }
 
