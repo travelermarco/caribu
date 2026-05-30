@@ -929,6 +929,16 @@ function renderVictron() {
       <div class="divider"></div>
       <div class="card-row" style="padding:4px 0"><span style="font-size:12px;color:var(--text-2)">Errore</span><span style="font-size:12px;color:${m.error === 'No error' ? 'var(--green)' : 'var(--red)'}">${m.error}</span></div>
       ${m.lastUpdate ? `<div style="font-size:10px;color:var(--text-2);margin-top:4px">Aggiornato: ${m.lastUpdate}</div>` : ''}
+      ${m.plainHex ? `<details style="margin-top:8px">
+        <summary style="font-size:10px;color:var(--text-2);cursor:pointer;user-select:none">🔬 Raw diagnostica</summary>
+        <div style="background:var(--bg);border-radius:6px;padding:6px 8px;margin-top:4px;font-size:9px;font-family:monospace;color:var(--text-2);word-break:break-all;line-height:1.8">
+          HEX: ${m.plainHex}<br>
+          b[0-1]=${m.plainRaw?.cs}cs ${m.plainRaw?.errCode}err &nbsp;
+          battVr=${m.plainRaw?.battVr} battIr=${m.plainRaw?.battIr}<br>
+          yTr=${m.plainRaw?.yTr ?? m.plainRaw?.yieldTr} pvVr(b6)=${m.plainRaw?.pvVr} pvWr=${m.plainRaw?.pvWr}<br>
+          yYr=${m.plainRaw?.yYr} maxPWr=${m.plainRaw?.maxPWr}
+        </div>
+      </details>` : ''}
       <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="(${idx===1?'window.mppt1':'window.mppt2'}).disconnect();renderVictron()">Disconnetti</button>
       ` : `
       <button class="btn btn-primary btn-full" onclick="connectMPPT(${idx})">Connetti</button>
