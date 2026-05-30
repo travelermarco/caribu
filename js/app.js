@@ -78,14 +78,14 @@ const bms    = new BMABLE   (d => {
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
   _pushPVChart();
-  try { const v1 = parseFloat(state.mppt1.battV); if (v1 > 0) updateSocTrend('mppt1', _voltsToSOC(v1, state.mppt1.csNum, 'mppt1')); } catch (_) {}
+  try { const v1 = parseFloat(state.mppt1.battV); if (v1 > 0 && state.mppt1.csNum !== 3) updateSocTrend('mppt1', _voltsToSOC(v1, state.mppt1.csNum, 'mppt1')); } catch (_) {}
   renderVictron(); renderDash(); updateDots();
   renderEnergy();
 });
 const mppt2  = new VictronMPPT('MPPT 2', d => {
   Object.assign(state.mppt2, d);
   _pushPVChart();
-  try { const v2 = parseFloat(state.mppt2.battV); if (v2 > 0) updateSocTrend('mppt2', _voltsToSOC(v2, state.mppt2.csNum, 'mppt2')); } catch (_) {}
+  try { const v2 = parseFloat(state.mppt2.battV); if (v2 > 0 && state.mppt2.csNum !== 3) updateSocTrend('mppt2', _voltsToSOC(v2, state.mppt2.csNum, 'mppt2')); } catch (_) {}
   renderVictron(); renderDash(); updateDots();
   renderEnergy();
 });
@@ -310,7 +310,8 @@ function _tableSOC(v, table) {
 function _voltsToSOC(v, csNum, key) {
   if (csNum === 5 || csNum === 6) return 100;
   if (csNum === 4) return BATT_PROFILE[key].type === 'lifepo4' ? 92 : 85;
-  if (csNum === 3) return null; // Bulk: tensione gonfiata
+  // Bulk e tutti gli altri stati: calcola dalla tabella OCV
+  // (in Bulk la tensione può essere leggermente gonfiata → SOC sovrastimato, ma è meglio di 0%)
   return _tableSOC(v, BATT_PROFILE[key].type === 'lifepo4' ? _SOC_LIFEPO4 : _SOC_LEAD);
 }
 
@@ -324,18 +325,15 @@ function updateSocTrend(key, soc) {
 }
 
 function _calcETA(key, soc, csNum, battAStr) {
-  const cap = BATT_PROFILE[key].capacity;
+  if (soc === null) return null;
+  const cap   = BATT_PROFILE[key].capacity;
   const battA = parseFloat(battAStr);
-  // Carica: MPPT in Bulk/Absorption con corrente significativa
+  // Carica: in Bulk/Absorption con corrente significativa
   if ((csNum === 3 || csNum === 4) && !isNaN(battA) && battA > 1.0) {
-    // Se il SOC è null (Bulk = tensione gonfiata), usa l'ultimo valore noto dal trend
-    const arr = _socTrend[key];
-    const socEst = soc ?? (arr.length > 0 ? arr[arr.length - 1].soc : 50);
-    const remAh = cap * (1 - socEst / 100);
+    const remAh = cap * (1 - soc / 100);
     return { label: 'a pieno', hours: remAh > 0.5 ? remAh / battA : 0 };
   }
-  if (soc === null) return null;
-  // Scarico: stima dal tasso di calo SOC storico
+  // Scarico: stima dal tasso di calo SOC storico (almeno 2 minuti di dati)
   const arr = _socTrend[key];
   if (arr.length >= 5) {
     const span = arr[arr.length - 1].ts - arr[0].ts;
@@ -356,12 +354,9 @@ function _fmtH(h) {
 function battInfoForKey(key) {
   const m = key === 'mppt1' ? state.mppt1 : state.mppt2;
   if (!m.connected || parseFloat(m.battV) <= 0) return null;
-  const v   = parseFloat(m.battV);
-  const socRaw = _voltsToSOC(v, m.csNum, key);
-  // In Bulk la tensione è gonfiata: usa l'ultimo SOC noto dal trend come riferimento
-  const tArr = _socTrend[key];
-  const soc  = socRaw ?? (tArr.length > 0 ? tArr[tArr.length - 1].soc : null);
-  const inBulk = socRaw === null;
+  const v      = parseFloat(m.battV);
+  const soc    = _voltsToSOC(v, m.csNum, key);   // sempre un numero (mai null)
+  const inBulk = m.csNum === 3;
   const battA  = parseFloat(m.battA) || 0;
   const mpptW  = v * battA;
   const remAh  = soc !== null ? BATT_PROFILE[key].capacity * soc / 100 : null;
@@ -916,7 +911,14 @@ function renderEnergy() {
   const solarW = (state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0)
               + (state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0);
   const hasBMS = state.bms.connected;
-  const battW  = hasBMS ? (battWatts(state.bms.voltage, state.bms.current) ?? 0) : null;
+  let battW = hasBMS ? (battWatts(state.bms.voltage, state.bms.current) ?? 0) : null;
+  let battEstimated = false;
+  if (battW === null) {
+    // Stima dalla somma delle potenze MPPT (battV × battA): approssimazione per carichi su batteria
+    const w1 = (() => { const b = battInfoForKey('mppt1'); return b ? parseFloat(b.mpptW) || 0 : 0; })();
+    const w2 = (() => { const b = battInfoForKey('mppt2'); return b ? parseFloat(b.mpptW) || 0 : 0; })();
+    if (w1 + w2 > 0) { battW = w1 + w2; battEstimated = true; }
+  }
   const loadW  = battW !== null ? Math.max(0, solarW - battW) : null;
   const card   = el('energy-balance-card');
   const body   = el('energy-balance-body');
@@ -925,7 +927,9 @@ function renderEnergy() {
   card.style.display = hasData ? '' : 'none';
   if (!hasData) return;
   const battColor = battW !== null ? (battW >= 0 ? 'var(--green)' : 'var(--amber)') : 'var(--text-2)';
-  const battLabel = battW !== null ? (battW >= 0 ? '↑ carica' : '↓ scarica') : 'BMS non connesso';
+  const battLabel = battW !== null
+    ? (battEstimated ? '↑ carica (stima)' : (battW >= 0 ? '↑ carica' : '↓ scarica'))
+    : '–';
 
   // Autonomia off-grid
   const autoH = estimateAutonomy(state);
