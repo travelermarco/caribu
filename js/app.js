@@ -328,6 +328,34 @@ function updateSocTrend(key, soc) {
   if (_socTrend[key].length > 30) _socTrend[key].shift();
 }
 
+function _socRate(key) {
+  const arr = _socTrend[key];
+  if (arr.length < 3) return null;
+  const span = arr[arr.length - 1].ts - arr[0].ts;
+  if (span < 60000) return null; // almeno 1 minuto
+  return (arr[arr.length - 1].soc - arr[0].soc) / (span / 3600000); // %/h
+}
+
+function _estimateDischargeW(key) {
+  const rate = _socRate(key);
+  if (rate === null || rate >= 0) return null; // non sta scaricando
+  const m = key === 'mppt1' ? state.mppt1 : state.mppt2;
+  const battV  = parseFloat(m.battV) || 0;
+  const pvW    = parseFloat(m.pvW)   || 0;
+  const cap    = BATT_PROFILE[key].capacity;
+  const disAh  = Math.abs(rate) * cap / 100;  // Ah/h
+  const disW   = disAh * battV;
+  const arr    = _socTrend[key];
+  const span   = arr[arr.length - 1].ts - arr[0].ts;
+  return {
+    W: Math.round(disW),
+    A: disAh.toFixed(1),
+    rate,                            // negativo = scarica
+    reliable: pvW < 5,              // stima affidabile solo senza solare
+    spanMin: Math.round(span / 60000),
+  };
+}
+
 function _calcETA(key, soc, csNum, battAStr) {
   if (soc === null) return null;
   const cap   = BATT_PROFILE[key].capacity;
@@ -337,14 +365,10 @@ function _calcETA(key, soc, csNum, battAStr) {
     const remAh = cap * (1 - soc / 100);
     return { label: 'a pieno', hours: remAh > 0.5 ? remAh / battA : 0 };
   }
-  // Scarico: stima dal tasso di calo SOC storico (almeno 2 minuti di dati)
-  const arr = _socTrend[key];
-  if (arr.length >= 5) {
-    const span = arr[arr.length - 1].ts - arr[0].ts;
-    if (span >= 120000) {
-      const rate = (arr[arr.length - 1].soc - arr[0].soc) / (span / 3600000);
-      if (rate < -1.5) return { label: 'a vuoto', hours: soc / Math.abs(rate) };
-    }
+  // Scarico: stima dal tasso di calo SOC (soglia abbassata: 0.5 %/h)
+  const rate = _socRate(key);
+  if (rate !== null && rate < -0.5) {
+    return { label: 'a vuoto', hours: soc / Math.abs(rate) };
   }
   return null;
 }
@@ -371,6 +395,8 @@ function battInfoForKey(key) {
     pvW: m.pvW, yieldToday: m.yieldToday, yieldYesterday: m.yieldYesterday,
     remAh: remAh !== null ? remAh.toFixed(1) : '--',
     eta: _calcETA(key, soc, m.csNum, m.battA),
+    dischargeEst: _estimateDischargeW(key),
+    ratePerH: _socRate(key),
     label: BATT_PROFILE[key].label,
     capacity: BATT_PROFILE[key].capacity,
   };
@@ -726,6 +752,28 @@ function _mpptBattCard(key) {
   const aNum   = parseFloat(info.battA);
   const wNum   = parseFloat(info.mpptW);
   const aColor = (info.csNum === 3 || info.csNum === 4) ? 'var(--green)' : 'var(--text-2)';
+
+  // Tasso netto SOC e stima carichi
+  const rate = info.ratePerH;
+  const rateStr = rate !== null
+    ? `<div style="font-size:12px;font-weight:600;color:${rate > 0 ? 'var(--green)' : rate < -0.3 ? 'var(--amber)' : 'var(--text-2)'};margin-top:6px">
+        ${rate > 0.3 ? '↑' : rate < -0.3 ? '↓' : '≈'} ${Math.abs(rate).toFixed(1)}%/h
+        <span style="font-size:10px;font-weight:400;color:var(--text-2)">(tasso netto SOC)</span>
+       </div>` : '';
+
+  const dis = info.dischargeEst;
+  const disHtml = dis ? `
+    <div style="background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px;text-align:left">
+      <div style="font-size:11px;color:var(--text-2);margin-bottom:4px;text-transform:uppercase;letter-spacing:.4px">Consumo stimato</div>
+      <div style="display:flex;gap:16px;align-items:baseline">
+        <span style="font-size:20px;font-weight:800;color:var(--amber)">~${dis.W} W</span>
+        <span style="font-size:13px;color:var(--text-2)">${dis.A} A · ${dis.spanMin} min di dati</span>
+      </div>
+      ${dis.reliable
+        ? `<div style="font-size:10px;color:var(--green);margin-top:2px">✓ Stima affidabile (solare assente)</div>`
+        : `<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠ Solare attivo — stima approssimativa</div>`}
+    </div>` : '';
+
   return `<div class="card" style="text-align:center">
     <div class="card-title">🔋 ${info.label}</div>
     ${gaugeHtml}
@@ -734,10 +782,12 @@ function _mpptBattCard(key) {
       ${info.inBulk ? `<span class="badge badge-green"><span class="badge-dot"></span>In carica</span>` : ''}
       ${etaStr}
     </div>
+    ${rateStr}
+    ${disHtml}
     <div class="grid-2" style="margin-top:10px">
       ${statCard('Tensione', 'var(--blue)', info.v.toFixed(2), 'V')}
-      ${!isNaN(aNum) && aNum > 0 ? statCard('Corrente', aColor, info.battA, 'A') : ''}
-      ${!isNaN(wNum) && wNum > 0 ? statCard('Potenza', 'var(--green)', '+' + info.mpptW, 'W') : ''}
+      ${!isNaN(aNum) && aNum > 0 ? statCard('Corrente MPPT', aColor, info.battA, 'A') : ''}
+      ${!isNaN(wNum) && wNum > 0 ? statCard('Potenza MPPT', 'var(--green)', '+' + info.mpptW, 'W') : ''}
       ${statCard('Cap. residua', socColor, info.remAh, 'Ah')}
       ${statCard('Cap. nominale', 'var(--text-2)', info.capacity, 'Ah')}
       ${info.pvW && info.pvW !== '--' ? statCard('Solare', 'var(--amber)', info.pvW, 'W') : ''}
