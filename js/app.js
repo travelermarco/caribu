@@ -77,12 +77,16 @@ const bms    = new BMABLE   (d => {
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
   _pushPVChart();
+  const _v1 = parseFloat(state.mppt1.battV);
+  if (_v1 > 0) updateSocTrend('mppt1', _voltsToSOC(_v1, state.mppt1.csNum, 'mppt1'));
   renderVictron(); renderDash(); updateDots();
   renderEnergy();
 });
 const mppt2  = new VictronMPPT('MPPT 2', d => {
   Object.assign(state.mppt2, d);
   _pushPVChart();
+  const _v2 = parseFloat(state.mppt2.battV);
+  if (_v2 > 0) updateSocTrend('mppt2', _voltsToSOC(_v2, state.mppt2.csNum, 'mppt2'));
   renderVictron(); renderDash(); updateDots();
   renderEnergy();
 });
@@ -276,31 +280,88 @@ function battWatts(voltage, current) {
   return w;
 }
 
-// ── SOC estimate from MPPT battery voltage (LiFePO4 12V) ─────────────────────
-function voltageToSOC(v, csNum) {
-  if (csNum === 5 || csNum === 6) return 100;  // Float / Storage = piena
-  if (csNum === 4) return 92;                   // Absorption ≈ 90-100%
-  if (csNum === 3) return null;                 // Bulk: tensione gonfiata, non stimabile
-  const table = [
-    [13.60, 100], [13.40, 95], [13.30, 90], [13.20, 75],
-    [13.10, 55],  [13.00, 35], [12.90, 20], [12.80, 12],
-    [12.70,  8],  [12.60,  5], [12.00,  0],
-  ];
+// ── Battery profiles & SOC estimation from MPPT ───────────────────────────────
+const BATT_PROFILE = {
+  mppt1: { capacity: 100, label: 'LiFePO4 100Ah', type: 'lifepo4' },
+  mppt2: { capacity:  70, label: 'Piombo 70Ah',   type: 'lead'    },
+};
+
+// LiFePO4 12V OCV → SOC (può arrivare a 14.4 V in assorbimento)
+const _SOC_LIFEPO4 = [
+  [14.40, 100], [13.60, 100], [13.40, 95], [13.30, 90],
+  [13.20,  75], [13.10,  55], [13.00, 35], [12.90, 20],
+  [12.80,  12], [12.70,   8], [12.60,  5], [12.00,  0],
+];
+// Piombo 12V OCV → SOC (AGM/gel a riposo)
+const _SOC_LEAD = [
+  [12.73, 100], [12.55, 80], [12.31, 60], [12.08, 40],
+  [11.83,  20], [11.63,  5], [10.80,  0],
+];
+
+function _tableSOC(v, table) {
   if (v >= table[0][0]) return 100;
   if (v <= table[table.length - 1][0]) return 0;
   for (let i = 0; i < table.length - 1; i++) {
-    const [v1, s1] = table[i];
-    const [v2, s2] = table[i + 1];
+    const [v1, s1] = table[i], [v2, s2] = table[i + 1];
     if (v >= v2) return Math.round(s2 + (v - v2) / (v1 - v2) * (s1 - s2));
   }
   return 0;
 }
 
-function battFromMPPT() {
-  const m = [state.mppt1, state.mppt2].find(m => m.connected && parseFloat(m.battV) > 0);
-  if (!m) return null;
+function _voltsToSOC(v, csNum, key) {
+  if (csNum === 5 || csNum === 6) return 100;
+  if (csNum === 4) return BATT_PROFILE[key].type === 'lifepo4' ? 92 : 85;
+  if (csNum === 3) return null; // Bulk: tensione gonfiata
+  return _tableSOC(v, BATT_PROFILE[key].type === 'lifepo4' ? _SOC_LIFEPO4 : _SOC_LEAD);
+}
+
+// Trend SOC nel tempo per stima scarico
+const _socTrend = { mppt1: [], mppt2: [] };
+
+function updateSocTrend(key, soc) {
+  if (soc === null) return;
+  _socTrend[key].push({ soc, ts: Date.now() });
+  if (_socTrend[key].length > 30) _socTrend[key].shift();
+}
+
+function _calcETA(key, soc, csNum, battAStr) {
+  if (soc === null) return null;
+  const cap = BATT_PROFILE[key].capacity;
+  const battA = parseFloat(battAStr);
+  // Carica: MPPT in Bulk/Absorption con corrente significativa
+  if ((csNum === 3 || csNum === 4) && !isNaN(battA) && battA > 1.0) {
+    const remAh = cap * (1 - soc / 100);
+    return { label: 'a pieno', hours: remAh > 0.5 ? remAh / battA : 0 };
+  }
+  // Scarico: stima dal tasso di calo SOC storico
+  const arr = _socTrend[key];
+  if (arr.length >= 5) {
+    const span = arr[arr.length - 1].ts - arr[0].ts;
+    if (span >= 120000) {
+      const rate = (arr[arr.length - 1].soc - arr[0].soc) / (span / 3600000);
+      if (rate < -1.5) return { label: 'a vuoto', hours: soc / Math.abs(rate) };
+    }
+  }
+  return null;
+}
+
+function _fmtH(h) {
+  if (!h || h <= 0) return null;
+  const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+  return hh === 0 ? `${mm}m` : mm === 0 ? `${hh}h` : `${hh}h ${mm}m`;
+}
+
+function battInfoForKey(key) {
+  const m = key === 'mppt1' ? state.mppt1 : state.mppt2;
+  if (!m.connected || parseFloat(m.battV) <= 0) return null;
   const v = parseFloat(m.battV);
-  return { v, csNum: m.csNum, cs: m.cs, label: m.label, soc: voltageToSOC(v, m.csNum) };
+  const soc = _voltsToSOC(v, m.csNum, key);
+  return {
+    v, csNum: m.csNum, cs: m.cs, soc,
+    eta: _calcETA(key, soc, m.csNum, m.battA),
+    label: BATT_PROFILE[key].label,
+    capacity: BATT_PROFILE[key].capacity,
+  };
 }
 
 // ── Connect placeholders for dashboard ───────────────────────────────────────
@@ -342,17 +403,22 @@ function renderDash() {
          ${eta !== null ? `<span class="badge badge-grey">⏱ ${eta}</span>` : ''}
        </div>`
     : (() => {
-        const batt = battFromMPPT();
-        if (!batt) return connectPlaceholder('🔋', 'Batterie', 'connectBMS()');
-        const sN = batt.soc;
+        const b1 = battInfoForKey('mppt1');
+        if (!b1) return connectPlaceholder('🔋', 'Batterie', 'connectBMS()');
+        const b2 = battInfoForKey('mppt2');
+        const sN = b1.soc;
         const sColor = sN !== null ? (sN >= 50 ? 'var(--green)' : sN >= 20 ? 'var(--amber)' : 'var(--red)') : 'var(--green)';
+        const eta1str = b1.eta && _fmtH(b1.eta.hours) ? `<div style="font-size:11px;color:var(--text-2)">⏱ ${_fmtH(b1.eta.hours)} ${b1.eta.label}</div>` : '';
+        const piomboLine = b2 ? `<div style="font-size:11px;color:var(--text-2);margin-top:3px">🔋 Piombo: ${b2.soc !== null ? '~' + b2.soc + '%' : 'In carica'} · ${b2.v.toFixed(2)} V</div>` : '';
         return sN !== null
-          ? `<div class="big-num" style="color:${sColor};font-size:38px">~${sN}<span class="big-unit" style="font-size:14px">%</span></div>
-             <div class="stat-sub" style="margin-bottom:4px">${batt.v.toFixed(2)} V · ${batt.cs}</div>
-             <div style="font-size:10px;color:var(--text-2)">stima MPPT · LiFePO4</div>`
-          : `<div class="big-num" style="color:var(--green);font-size:28px">In carica</div>
-             <div class="stat-sub">${batt.v.toFixed(2)} V · ${batt.cs}</div>
-             <div style="font-size:10px;color:var(--text-2)">stima MPPT</div>`;
+          ? `<div class="big-num" style="color:${sColor};font-size:36px">~${sN}<span class="big-unit" style="font-size:13px">%</span></div>
+             <div class="stat-sub" style="margin-bottom:2px">${b1.v.toFixed(2)} V · ${b1.cs}</div>
+             ${eta1str}${piomboLine}
+             <div style="font-size:10px;color:var(--text-2);margin-top:2px">stima MPPT 1 · LiFePO4</div>`
+          : `<div class="big-num" style="color:var(--green);font-size:24px">In carica ⚡</div>
+             <div class="stat-sub">${b1.v.toFixed(2)} V · ${b1.cs}</div>
+             ${piomboLine}
+             <div style="font-size:10px;color:var(--text-2)">stima MPPT 1</div>`;
       })();
 
   // Solar card
@@ -599,6 +665,43 @@ function renderBMS() {
   chartBMSPower.mount('#chart-bms-power-mount');
 }
 
+// ── Battery card helper for Victron screen ─────────────────────────────────────
+function _mpptBattCard(key) {
+  const info = battInfoForKey(key);
+  if (!info) return '';
+  const socN = info.soc ?? 0;
+  const inCharge = info.soc === null;
+  const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
+  const r = 70, cx = 90, cy = 95, sw = 14;
+  const angle = (socN / 100) * 180;
+  const arcX = cx + r * Math.cos(Math.PI - angle * Math.PI / 180);
+  const arcY = cy - r * Math.sin(angle * Math.PI / 180);
+  const la = angle > 180 ? 1 : 0;
+  const gaugeHtml = inCharge
+    ? `<div style="font-size:28px;font-weight:800;color:var(--green);padding:14px 0">In carica ⚡</div>`
+    : `<svg viewBox="0 0 180 110" style="width:180px;height:110px">
+        <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
+        ${socN > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${socColor}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
+        <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">~${socN}%</text>
+        <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">SOC stimato</text>
+      </svg>`;
+  const cs2 = csInfo(info.csNum);
+  const etaStr = info.eta && _fmtH(info.eta.hours) ? `<span class="badge badge-grey">⏱ ${_fmtH(info.eta.hours)} ${info.eta.label}</span>` : '';
+  return `<div class="card" style="text-align:center">
+    <div class="card-title">🔋 ${info.label}</div>
+    ${gaugeHtml}
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:6px">
+      ${badge(cs2.dot || 'grey', info.cs)}
+      ${etaStr}
+    </div>
+    <div class="grid-2" style="margin-top:10px">
+      ${statCard('Tensione', 'var(--blue)', info.v.toFixed(2), 'V')}
+      ${statCard('Capacità', 'var(--text-2)', info.capacity, 'Ah')}
+    </div>
+    <div style="font-size:10px;color:var(--text-2);margin-top:6px">Stima da tensione · ±5% · imprecisa in fase Bulk</div>
+  </div>`;
+}
+
 // ── Victron screen ────────────────────────────────────────────────────────────
 function csInfo(csNum) {
   if (csNum === 3 || csNum === 4) return { color: 'var(--green)',  label: csNum === 3 ? 'Bulk' : 'Absorption', dot: 'green' };
@@ -678,39 +781,11 @@ function renderVictron() {
     </div>`;
   };
 
-  const _batt = battFromMPPT();
-  const _battCardHtml = _batt ? (() => {
-    const socN = _batt.soc ?? 0;
-    const socColor = socN >= 50 ? '#4ADE80' : socN >= 20 ? '#F59E0B' : '#F87171';
-    const r = 70, cx = 90, cy = 95, sw = 14;
-    const angle = (socN / 100) * 180;
-    const arcX = cx + r * Math.cos(Math.PI - angle * Math.PI / 180);
-    const arcY = cy - r * Math.sin(angle * Math.PI / 180);
-    const la = angle > 180 ? 1 : 0;
-    const cs2 = csInfo(_batt.csNum);
-    const gaugeHtml = _batt.soc !== null
-      ? `<svg viewBox="0 0 180 110" style="width:200px;height:120px">
-          <path d="M ${cx-r},${cy} A ${r},${r} 0 0 1 ${cx+r},${cy}" fill="none" stroke="var(--surface2)" stroke-width="${sw}" stroke-linecap="round"/>
-          ${socN > 0 ? `<path d="M ${cx-r},${cy} A ${r},${r} 0 ${la} 1 ${arcX},${arcY}" fill="none" stroke="${socColor}" stroke-width="${sw}" stroke-linecap="round"/>` : ''}
-          <text x="${cx}" y="${cy-10}" text-anchor="middle" class="gauge-text" style="fill:${socColor}">~${socN}%</text>
-          <text x="${cx}" y="${cy+12}" text-anchor="middle" class="gauge-sub">SOC stimato</text>
-        </svg>`
-      : `<div style="font-size:30px;font-weight:800;color:var(--green);padding:18px 0">In carica ⚡</div>`;
-    return `<div class="card" style="text-align:center">
-      <div class="card-title">Batteria — stima da ${_batt.label}</div>
-      ${gaugeHtml}
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:4px">
-        ${badge(cs2.dot || 'grey', _batt.cs)}
-        ${statCard('Tensione', 'var(--blue)', _batt.v.toFixed(2), 'V')}
-      </div>
-      <div style="font-size:10px;color:var(--text-2);margin-top:8px">LiFePO4 12V · precisione ±5% · non affidabile durante carica rapida (Bulk)</div>
-    </div>`;
-  })() : '';
-
   el('victron-body').innerHTML = `
     <div class="alert alert-warn">ℹ️ Chiave: VictronConnect → dispositivo → ⋮ → <strong>Show encryption data</strong></div>
     <div class="alert alert-warn" style="font-size:11px">Su Android potrebbe servire abilitare <strong>chrome://flags/#enable-experimental-web-platform-features</strong></div>
-    ${_battCardHtml}
+    ${_mpptBattCard('mppt1')}
+    ${_mpptBattCard('mppt2')}
     ${(state.mppt1.connected || state.mppt2.connected) ? `
     <div class="card">
       <div class="card-title">Potenza solare totale</div>
