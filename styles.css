@@ -23,11 +23,17 @@
   --glass-blur: blur(20px) saturate(160%);
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.65;
   overscroll-behavior: none;
 }
 
@@ -378,12 +384,12 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 /* ── Connect overlay ──────────────────────────────────────────────────────── */
 .connect-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 180px; }
 .connect-placeholder .icon { font-size: 48px; opacity: .3; }
-.connect-placeholder p { color: var(--text-2); font-size: 14px; text-align: center; max-width: 220px; line-height: 1.5; }
+.connect-placeholder p { color: var(--text-2); font-size: 14px; text-align: center; max-width: 220px; line-height: 1.65; }
 
 /* ── Settings ─────────────────────────────────────────────────────────────── */
 .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); gap: 12px; }
 .settings-row:last-child { border-bottom: none; }
-.settings-row label { font-size: 13px; color: var(--text); font-weight: 500; white-space: nowrap; }
+.settings-row label { font-size: 13px; color: var(--text); font-weight: 600; white-space: nowrap; }
 .settings-row input[type=text], .settings-row input[type=password] {
   flex: 1;
   background: rgba(255,255,255,0.04);
@@ -392,9 +398,10 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
   padding: 8px 12px;
   color: var(--text);
   font-size: 13px;
+  font-family: inherit;
   outline: none;
   min-width: 0;
-  transition: border-color .2s;
+  transition: border-color .15s;
 }
 .settings-row input:focus { border-color: rgba(245,158,11,0.5); background: rgba(245,158,11,0.04); }
 
