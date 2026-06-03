@@ -684,3 +684,84 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 .doc-cat-btn:active { transform: scale(.93); background: rgba(245,158,11,.1); border-color: rgba(245,158,11,.3); }
 [data-theme="light"] .doc-modal-box { background: var(--surface); }
 [data-theme="light"] .doc-cat-btn   { background: var(--surface2); }
+
+/* ── SPLASH ── */
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(9,13,20,0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.3s cubic-bezier(0.4,0,0.6,1);
+}
+#splash.splash-out  { opacity: 0; }
+#splash.splash-gone { display: none; }
+
+.splash-logo-wrap {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  filter: drop-shadow(0 0 24px rgba(245,158,11,0.45));
+}
+.splash-logo-ghost {
+  position: absolute;
+  inset: 0;
+  width: 96px;
+  height: 96px;
+  opacity: 0.1;
+}
+.splash-logo-fill {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(100% 0 0 0);
+  animation: splash-fill 0.75s cubic-bezier(0.4,0,0.2,1) 0.1s forwards;
+}
+.splash-logo-fill img {
+  width: 96px;
+  height: 96px;
+  display: block;
+}
+@keyframes splash-fill {
+  0%   { clip-path: inset(100% 0 0 0); }
+  100% { clip-path: inset(0%   0 0 0); }
+}
+.splash-brand {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--amber);
+  letter-spacing: -0.3px;
+  opacity: 0;
+  animation: splash-brand-in 0.3s ease 0.35s forwards;
+}
+@keyframes splash-brand-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── PAGE REVEAL ── */
+@keyframes reveal-down {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes reveal-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.app-header {
+  animation: reveal-down 0.45s cubic-bezier(0.2,0,0.38,1) 0ms both;
+  animation-play-state: paused;
+}
+#screen-dash {
+  animation: reveal-up 0.5s cubic-bezier(0.2,0,0.38,1) 50ms both;
+  animation-play-state: paused;
+}
+body.revealed .app-header,
+body.revealed #screen-dash { animation-play-state: running; }

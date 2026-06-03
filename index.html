@@ -13,6 +13,18 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+
+<!-- SPLASH -->
+<div id="splash" role="presentation" aria-hidden="true">
+  <div class="splash-logo-wrap">
+    <img class="splash-logo-ghost" src="/icons/icon.svg" alt="">
+    <div class="splash-logo-fill">
+      <img src="/icons/icon.svg" alt="">
+    </div>
+  </div>
+  <span class="splash-brand">Caribù</span>
+</div>
+
 <div id="app">
 
   <!-- Header -->
@@ -210,6 +222,25 @@
     btn.addEventListener('click', () => window.switchTab(btn.dataset.tab)));
   document.querySelectorAll('#main-dock .dock-btn[data-tab]').forEach(btn =>
     btn.addEventListener('click', () => window.switchTab(btn.dataset.tab)));
+
+  // ── SPLASH ──
+  (function() {
+    const splash = document.getElementById('splash');
+    if (!splash) return;
+    function reveal() { document.body.classList.add('revealed'); }
+    if (sessionStorage.getItem('caribu-splash')) {
+      splash.classList.add('splash-gone');
+      reveal();
+      return;
+    }
+    sessionStorage.setItem('caribu-splash', '1');
+    const fill = splash.querySelector('.splash-logo-fill');
+    fill.addEventListener('animationend', () => {
+      splash.classList.add('splash-out');
+      reveal();
+      splash.addEventListener('transitionend', () => splash.classList.add('splash-gone'), { once: true });
+    }, { once: true });
+  })();
 </script>
 <script type="module" src="/js/app.js"></script>
 </body>
