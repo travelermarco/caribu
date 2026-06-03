@@ -291,6 +291,19 @@ function battWatts(voltage, current) {
   return w;
 }
 
+// ── Config helpers ────────────────────────────────────────────────────────────
+function isMpptEstimateEnabled() {
+  return localStorage.getItem('mppt_estimate_enabled') !== 'false';
+}
+function setMpptEstimateEnabled(val) {
+  localStorage.setItem('mppt_estimate_enabled', val ? 'true' : 'false');
+  if (!val) window._bmsShowMPPT = false;
+  const lbl = document.getElementById('mppt-estimate-label');
+  if (lbl) lbl.textContent = val ? 'Attiva' : 'Disattiva';
+  renderBMS();
+  renderEnergy();
+}
+
 // ── Battery profiles & SOC estimation from MPPT ───────────────────────────────
 const BATT_PROFILE = {
   mppt1: { capacity: 100, label: 'LiFePO4 100Ah', type: 'lifepo4' },
@@ -629,7 +642,7 @@ function renderBMS() {
           <div class="icon">🔋</div>
           <p>Connetti il BMS XiaoXiang via Bluetooth</p>
           <button class="btn btn-primary btn-full" onclick="connectBMS()">Connetti</button>
-          <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window._bmsShowMPPT=true;window.renderBMS()">📊 Stima da MPPT</button>
+          ${isMpptEstimateEnabled() ? `<button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="window._bmsShowMPPT=true;window.renderBMS()">📊 Stima da MPPT</button>` : ''}
         </div>`;
     }
     return;
@@ -1020,6 +1033,18 @@ function renderSettings() {
       <div class="settings-row"><label>Aggiornamento</label><button class="btn btn-ghost" onclick="checkUpdate()">🔄 Verifica</button></div>
     </div>
     <div class="card">
+      <div class="card-title">🔋 Batteria</div>
+      <div class="settings-row">
+        <label>Stima da MPPT<br><span style="font-size:11px;color:var(--text-2);font-weight:400">Se disattivata, il livello batteria<br>funziona solo via Bluetooth (BMS)</span></label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex-shrink:0">
+          <input type="checkbox" id="mppt-estimate-toggle" ${isMpptEstimateEnabled() ? 'checked' : ''}
+            style="width:18px;height:18px;accent-color:var(--amber)"
+            onchange="setMpptEstimateEnabled(this.checked)">
+          <span style="font-size:13px" id="mppt-estimate-label">${isMpptEstimateEnabled() ? 'Attiva' : 'Disattiva'}</span>
+        </label>
+      </div>
+    </div>
+    <div class="card">
       <div class="card-title">Dispositivi salvati</div>
       <div style="font-size:12px;color:var(--text-2);line-height:2">
         BMS: ${saved('ble_bms_id')}<br>
@@ -1057,7 +1082,7 @@ function renderEnergy() {
   const hasBMS = state.bms.connected;
   let battW = hasBMS ? (battWatts(state.bms.voltage, state.bms.current) ?? 0) : null;
   let battEstimated = false;
-  if (battW === null) {
+  if (battW === null && isMpptEstimateEnabled()) {
     // Stima dalla somma delle potenze MPPT (battV × battA): approssimazione per carichi su batteria
     const w1 = (() => { const b = battInfoForKey('mppt1'); return b ? parseFloat(b.mpptW) || 0 : 0; })();
     const w2 = (() => { const b = battInfoForKey('mppt2'); return b ? parseFloat(b.mpptW) || 0 : 0; })();
@@ -1320,7 +1345,8 @@ window.connectHeater = async () => {
   const ok = await heater.connect();
   if (!ok) updateDots();
 };
-window.renderBMS     = () => renderBMS();
+window.renderBMS              = () => renderBMS();
+window.setMpptEstimateEnabled = (v) => setMpptEstimateEnabled(v);
 window.connectBMS = async () => {
   setDotConnecting('dot-bms');
   const ok = await bms.connect();
