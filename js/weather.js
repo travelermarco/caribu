@@ -214,6 +214,20 @@ function _manualForm(containerId, errMsg) {
     <p style="font-size:12px;color:var(--text-2);padding:0 4px;line-height:1.6">Abilita il GPS nelle impostazioni del browser per ottenere le previsioni in automatico.</p>`;
 }
 
+// ── Sun times ─────────────────────────────────────────────────────────────────
+
+/**
+ * getTodaySunTimes() — returns { rise: Date, set: Date } from cached weather, or null.
+ */
+export function getTodaySunTimes() {
+  const cached = _loadJSON(CACHE_KEY_WEATHER);
+  if (!cached?.data) return null;
+  const rise = cached.data.daily?.sunrise?.[0];
+  const set  = cached.data.daily?.sunset?.[0];
+  if (!rise || !set) return null;
+  return { rise: new Date(rise), set: new Date(set) };
+}
+
 // ── localStorage helpers ──────────────────────────────────────────────────────
 
 function _loadJSON(key) {

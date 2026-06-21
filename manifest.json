@@ -23,6 +23,13 @@
   ],
   "shortcuts": [
     {
+      "name": "Status rapido",
+      "short_name": "Status",
+      "description": "Batteria, temperatura e meteo in un colpo d'occhio",
+      "url": "/?widget=1",
+      "icons": [{"src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}]
+    },
+    {
       "name": "Batterie",
       "short_name": "BMS",
       "url": "/?tab=bms",

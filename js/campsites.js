@@ -40,6 +40,39 @@ function _markDeparted(id) {
   _save(arr);
 }
 
+// ── Weather at arrival ────────────────────────────────────────────────────────
+
+async function _fetchArrivalWeather(lat, lon) {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast`
+      + `?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}`
+      + `&current_weather=true`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const cw = data.current_weather;
+    if (!cw) return null;
+    return { temp: Math.round(cw.temperature), code: cw.weathercode };
+  } catch {
+    return null;
+  }
+}
+
+// ── WMO weather code → emoji ──────────────────────────────────────────────────
+
+function _wmoEmoji(code) {
+  if (code === 0)                return '☀️';
+  if (code === 1)                return '🌤';
+  if (code === 2)                return '⛅';
+  if (code === 3)                return '☁️';
+  if (code === 45 || code === 48) return '🌫';
+  if (code >= 51 && code <= 65)  return '🌧';
+  if (code >= 71 && code <= 77)  return '🌨';
+  if (code >= 80 && code <= 82)  return '🌦';
+  if (code >= 95)                return '⛈';
+  return '🌡';
+}
+
 // ── Geocoding ─────────────────────────────────────────────────────────────────
 
 async function _reverseGeocode(lat, lon) {
@@ -104,11 +137,15 @@ async function _onPosition(pos) {
 
     if (!hasOpen && _loggedToday !== todayStr) {
       _loggedToday = todayStr;
-      const address = await _reverseGeocode(lat, lon) ?? `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+      const [address, weather] = await Promise.all([
+        _reverseGeocode(lat, lon).then(a => a ?? `${lat.toFixed(4)}, ${lon.toFixed(4)}`),
+        _fetchArrivalWeather(lat, lon),
+      ]);
       const entry = {
         id:       `camp_${now}`,
         lat, lon,
         address,
+        weather,
         arrival:   new Date().toISOString(),
         departure: null,
         notes:     '',
@@ -163,6 +200,9 @@ export function renderCampsites(containerId) {
     const active = !c.departure;
     const nights = _nights(c.arrival, c.departure);
     const nightLabel = nights === 0 ? 'Prima notte' : nights === 1 ? '1 notte' : `${nights} notti`;
+    const weatherBadge = c.weather
+      ? `<span style="font-size:11px;color:var(--text-2)">${_wmoEmoji(c.weather.code)} ${c.weather.temp}°C all'arrivo</span>`
+      : '';
     return `
     <div class="camp-card ${active ? 'camp-active' : ''}">
       <div class="camp-header">
@@ -170,6 +210,7 @@ export function renderCampsites(containerId) {
           <div class="camp-location">📍 ${c.address}</div>
           <div class="camp-date">Arrivo: ${_fmtDate(c.arrival)} · ${nightLabel}</div>
           ${c.departure ? `<div class="camp-date">Partenza: ${_fmtDate(c.departure)}</div>` : ''}
+          ${weatherBadge}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
           ${active ? '<span class="badge badge-green"><span class="badge-dot"></span>Qui ora</span>' : ''}

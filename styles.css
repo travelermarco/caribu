@@ -772,3 +772,32 @@ input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px;
 }
 body.revealed .app-header,
 body.revealed #screen-dash { animation-play-state: running; }
+
+/* ── NIGHT MODE ── */
+html[data-time="night"] {
+  --bg:       #040710;
+  --surface:  #0B0F1A;
+  --surface2: #101420;
+  --border:   rgba(255,200,100,0.06);
+  --border-s: rgba(255,200,100,0.03);
+  --amber:    #E07808;
+  --amber-l:  #F0A030;
+  --blue:     #1880A8;
+  --text:     #E8D5A8;
+  --text-2:   #6A5E50;
+  --glass-bg: rgba(4,7,16,0.82);
+}
+
+html[data-time="night"] #app {
+  filter: brightness(0.88) sepia(0.12);
+  transition: filter 2s ease;
+}
+html[data-time="day"] #app {
+  filter: none;
+  transition: filter 2s ease;
+}
+
+html[data-time="night"] .card,
+html[data-time="night"] .stat-card {
+  background: rgba(10,14,26,0.75);
+}

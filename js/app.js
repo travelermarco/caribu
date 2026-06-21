@@ -4,8 +4,8 @@ import { BMABLE }                    from './bms.js';
 import { VictronMPPT }               from './victron.js';
 import { ImouAPI }                   from './imou.js';
 import { MiniChart }                 from './chart.js';
-import { pushSnapshot, drawHistChart, estimateAutonomy, getCumulativeEnergy } from './history.js';
-import { renderWeather }               from './weather.js';
+import { pushSnapshot, drawHistChart, estimateAutonomy, getCumulativeEnergy, getNightStats, getRecent } from './history.js';
+import { renderWeather, getTodaySunTimes } from './weather.js';
 import { startTracking, renderCampsites, deleteCampsite, updateNotes } from './campsites.js';
 import { checkThresholds, requestPermission, renderNotifSettings, getThresholds, saveThresholds } from './notifications.js';
 import { renderMaintenance, markDone, checkMaintenanceAlerts } from './maintenance.js';
@@ -74,6 +74,7 @@ const bms    = new BMABLE   (d => {
   checkThresholds(state);
   renderHistCharts();
   renderEnergy();
+  _pushToAndroidAuto();
 });
 const mppt1  = new VictronMPPT('MPPT 1', d => {
   Object.assign(state.mppt1, d);
@@ -515,6 +516,8 @@ function renderDash() {
     ? `<div class="big-num" style="color:var(--amber);font-size:38px">${totalW}<span class="big-unit" style="font-size:14px">W</span></div>
        <div class="stat-sub">Oggi: ${yT} kWh</div>`
     : connectPlaceholder('☀️', 'Solare', 'connectMPPT(1)');
+
+  renderNightLog();
 
   // Imou card
   const ic = state.imou;
@@ -1166,6 +1169,45 @@ function renderEnergy() {
   `;
 }
 
+// ── Night temperature log ─────────────────────────────────────────────────────
+function renderNightLog() {
+  const card = el('night-log-card');
+  const body = el('night-log-body');
+  if (!card || !body) return;
+
+  const stats = getNightStats();
+  if (!stats) { card.style.display = 'none'; return; }
+
+  card.style.display = '';
+  const minC = stats.min >= 30 ? 'var(--blue)' : stats.min >= 18 ? 'var(--green)' : stats.min >= 10 ? 'var(--amber)' : 'var(--red)';
+  const maxC = stats.max >= 30 ? 'var(--red)' : stats.max >= 22 ? 'var(--amber)' : 'var(--green)';
+
+  // Sparkline from night points
+  const pts = stats.points;
+  let sparkHtml = '';
+  if (pts.length >= 2) {
+    const W = 280, H = 40;
+    const vals = pts.map(p => p.temp);
+    const lo = Math.min(...vals), hi = Math.max(...vals) || lo + 1;
+    const range = hi - lo || 1;
+    const xOf = (i) => (i / (pts.length - 1)) * W;
+    const yOf = (v) => H - ((v - lo) / range) * H * 0.85 - 3;
+    const polyline = pts.map((p, i) => `${xOf(i).toFixed(1)},${yOf(p.temp).toFixed(1)}`).join(' ');
+    sparkHtml = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block;margin:8px 0">
+      <polyline points="${polyline}" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>`;
+  }
+
+  body.innerHTML = `
+    <div class="grid-2" style="margin-bottom:8px">
+      ${statCard('Min', minC, stats.min.toFixed(1), '°C')}
+      ${statCard('Max', maxC, stats.max.toFixed(1), '°C')}
+      ${statCard('Media', 'var(--text)', stats.avg.toFixed(1), '°C')}
+      ${statCard('Riscaldatore', 'var(--text-2)', stats.heaterMins, 'min')}
+    </div>
+    ${sparkHtml}`;
+}
+
 // ── Historical charts ─────────────────────────────────────────────────────────
 function renderHistCharts() {
   drawHistChart(el('hist-soc-container'),  'soc',   { color: '#4ADE80', unit: '%', label: 'SOC batteria',       yMin: 0, yMax: 100 });
@@ -1404,6 +1446,22 @@ window.disconnectAll = () => {
   toast('Disconnesso');
 };
 
+// ── Night mode (auto, based on sunset/sunrise) ────────────────────────────────
+function _applyNightMode() {
+  const sun = getTodaySunTimes();
+  const now = new Date();
+  let isNight;
+  if (sun) {
+    isNight = now < sun.rise || now > sun.set;
+  } else {
+    const h = now.getHours();
+    isNight = h >= 22 || h < 7;
+  }
+  document.documentElement.setAttribute('data-time', isNight ? 'night' : 'day');
+}
+_applyNightMode();
+setInterval(_applyNightMode, 5 * 60 * 1000);
+
 // ── Theme toggle ──────────────────────────────────────────────────────────────
 (function initTheme() {
   const saved = localStorage.getItem('caribu_theme') || 'dark';
@@ -1501,6 +1559,39 @@ window.toast = (msg) => {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
 };
 
+// ── Android Auto bridge ───────────────────────────────────────────────────────
+// Posts current state to the native Caribu Android app (localhost:8888)
+// so it can be displayed on the Android Auto car screen.
+// Silent no-op when not running alongside the Android app.
+let _aaBridgeOk = false;
+
+async function _pushToAndroidAuto() {
+  const solarW = (state.mppt1.connected ? parseFloat(state.mppt1.pvW) || 0 : 0)
+               + (state.mppt2.connected ? parseFloat(state.mppt2.pvW) || 0 : 0);
+  const payload = JSON.stringify({
+    soc:             state.bms.connected ? parseInt(state.bms.soc) || null : null,
+    heaterTemp:      state.heater.connected ? parseFloat(state.heater.currentTemp) || null : null,
+    heaterOn:        state.heater.state === 1 || state.heater.state === 2,
+    solarW:          solarW > 0 ? Math.round(solarW) : 0,
+    bmsConnected:    state.bms.connected,
+    heaterConnected: state.heater.connected,
+  });
+  try {
+    const r = await fetch('http://localhost:8888/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+      signal: AbortSignal.timeout(2000),
+    });
+    _aaBridgeOk = r.ok;
+  } catch {
+    _aaBridgeOk = false;
+  }
+}
+
+// Expose state globally so the Android WebView bridge can read it directly
+window._caribuState = state;
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 renderDash();
 renderHeater();
@@ -1527,7 +1618,7 @@ async function _runWeatherAlerts() {
     });
   }
 }
-_runWeatherAlerts();
+_runWeatherAlerts().then(() => _applyNightMode());
 setInterval(_runWeatherAlerts, 30 * 60 * 1000);
 
 // Lock screen (overlay over already-rendered app)
@@ -1540,6 +1631,76 @@ renderHistCharts();
 // Handle PWA shortcut URL params (?tab=bms, ?tab=heater, etc.)
 const _urlTab = new URLSearchParams(location.search).get('tab');
 if (_urlTab) window.switchTab(_urlTab);
+
+// ── Widget mode (?widget=1) ───────────────────────────────────────────────────
+if (new URLSearchParams(location.search).has('widget')) {
+  (function _initWidget() {
+    {
+      const overlay = document.createElement('div');
+      overlay.id = 'widget-overlay';
+      overlay.style.cssText = [
+        'position:fixed;inset:0;z-index:9999',
+        'background:var(--bg)',
+        'display:flex;flex-direction:column;align-items:center;justify-content:center',
+        'padding:24px;gap:0',
+        'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+      ].join(';');
+      document.body.appendChild(overlay);
+
+      function _wmoEmojiW(code) {
+        if (!code && code !== 0) return '';
+        if (code === 0) return '☀️'; if (code === 1) return '🌤'; if (code === 2) return '⛅';
+        if (code === 3) return '☁️'; if (code >= 51 && code <= 65) return '🌧';
+        if (code >= 71 && code <= 77) return '🌨'; if (code >= 80) return '⛈'; return '🌡';
+      }
+
+      function _render() {
+        const snaps = getRecent(2);
+        const last  = snaps.length ? snaps[snaps.length - 1] : null;
+        const soc   = last?.soc  ?? null;
+        const temp  = last?.temp ?? null;
+
+        // Weather from cache
+        let wxHtml = '';
+        try {
+          const wx = JSON.parse(localStorage.getItem('caribu_weather_v1') || 'null');
+          if (wx?.data?.daily) {
+            const tMax = Math.round(wx.data.daily.temperature_2m_max?.[0] ?? 0);
+            const tMin = Math.round(wx.data.daily.temperature_2m_min?.[0] ?? 0);
+            const code = wx.data.daily.weathercode?.[0] ?? 0;
+            wxHtml = `<div style="font-size:40px;margin-bottom:4px">${_wmoEmojiW(code)}</div>
+              <div style="font-size:16px;color:var(--text-2)">${tMax}° / ${tMin}°</div>`;
+          }
+        } catch {}
+
+        const socColor = soc !== null ? (soc >= 50 ? 'var(--green)' : soc >= 20 ? 'var(--amber)' : 'var(--red)') : 'var(--text-2)';
+        const now = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+
+        overlay.innerHTML = `
+          <div style="font-size:13px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--text-2);margin-bottom:24px">🚐 Caribù · Status</div>
+
+          <div style="font-size:80px;font-weight:900;color:${socColor};line-height:1;margin-bottom:4px">${soc !== null ? soc : '--'}<span style="font-size:32px;color:var(--text-2)">%</span></div>
+          <div style="font-size:13px;color:var(--text-2);margin-bottom:28px">Batteria</div>
+
+          ${temp !== null ? `
+          <div style="font-size:52px;font-weight:800;color:var(--amber);line-height:1;margin-bottom:4px">${temp}<span style="font-size:22px;color:var(--text-2)">°C</span></div>
+          <div style="font-size:13px;color:var(--text-2);margin-bottom:28px">Temperatura</div>` : ''}
+
+          ${wxHtml ? `<div style="text-align:center;margin-bottom:28px">${wxHtml}</div>` : ''}
+
+          <div style="font-size:11px;color:var(--text-2);margin-bottom:28px">Aggiornato alle ${now}</div>
+
+          <button onclick="location.href=location.origin"
+            style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;color:var(--text);font-size:13px;font-weight:700;padding:12px 28px;cursor:pointer">
+            Apri app completa →
+          </button>`;
+      }
+
+      _render();
+      setInterval(_render, 30000);
+    }
+  })();
+}
 
 // Check maintenance alerts at startup (if notifications granted)
 if (Notification.permission === 'granted') {

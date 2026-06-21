@@ -81,6 +81,30 @@ export function getCumulativeEnergy(hours = 24) {
   return { pvKwh, loadKwh };
 }
 
+/**
+ * getNightStats(dateStr?) — stats for the night starting on dateStr (YYYY-MM-DD, default yesterday).
+ * A "night" spans 22:00 of dateStr → 09:00 of dateStr+1.
+ * Returns { min, max, avg, heaterMins, points } or null if no data.
+ */
+export function getNightStats(dateStr) {
+  const base = dateStr
+    ? new Date(dateStr + 'T22:00:00')
+    : (() => { const d = new Date(); d.setDate(d.getDate() - (d.getHours() < 9 ? 1 : 0)); d.setHours(22,0,0,0); return d; })();
+  const nightStart = base.getTime();
+  const nightEnd   = nightStart + 11 * 3600 * 1000; // +11h → 09:00 next day
+
+  const points = _load().filter(p => p.temp != null && p.ts >= nightStart && p.ts <= nightEnd);
+  if (!points.length) return null;
+
+  const temps = points.map(p => p.temp);
+  const min   = Math.min(...temps);
+  const max   = Math.max(...temps);
+  const avg   = temps.reduce((a, b) => a + b, 0) / temps.length;
+  const heaterMins = points.length * (INTERVAL_MS / 60000);
+
+  return { min, max, avg: Math.round(avg * 10) / 10, heaterMins: Math.round(heaterMins), points };
+}
+
 // ── SVG time-series chart ─────────────────────────────────────────────────────
 const W = 320, H = 90;
 const PAD = { t: 6, r: 4, b: 18, l: 36 };
