@@ -1,5 +1,7 @@
 # ⚡ Caribù
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?logo=open-source-initiative&logoColor=white)](LICENSE)
+
 Unified camper dashboard — controls all 4 systems from one beautiful app.
 
 | System | Protocol | Status |
